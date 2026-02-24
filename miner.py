@@ -442,6 +442,14 @@ ARTIFACT:"""
         
         result = resp.json()
         
+        # Log token usage for cost tracking
+        usage = result.get("usage", {})
+        if usage:
+            prompt_tokens = usage.get("prompt_tokens", 0)
+            completion_tokens = usage.get("completion_tokens", 0)
+            total_tokens = usage.get("total_tokens", 0)
+            self.log(f"Token usage: {prompt_tokens} prompt + {completion_tokens} completion = {total_tokens} total")
+        
         # Check for API errors
         if "error" in result:
             error_msg = result.get("error", {})
