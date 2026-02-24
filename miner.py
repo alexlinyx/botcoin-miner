@@ -198,32 +198,57 @@ class BotcoinMiner:
     # ==================== SOLVE ====================
     
     def solve(self, challenge: Dict) -> str:
-        """Solve the challenge using LLM."""
+        """Solve the challenge using LLM with two-pass approach."""
         doc = challenge.get("doc", "")
         questions = challenge.get("questions", [])
         constraints = challenge.get("constraints", [])
         companies = challenge.get("companies", [])
         
-        prompt = f"""You are solving a BOTCOIN mining challenge. Analyze the document and answer questions, then construct an artifact.
+        # Two-pass prompt for better accuracy
+        prompt = f"""You are solving a BOTCOIN mining challenge. This requires precise multi-hop reasoning and constraint satisfaction.
 
 DOCUMENT:
 {doc}
 
-COMPANIES (valid answers must match these exactly):
+VALID COMPANY NAMES (answers must match exactly):
 {json.dumps(companies, indent=2)}
 
-QUESTIONS:
+QUESTIONS TO ANSWER:
 {json.dumps(questions, indent=2)}
 
 CONSTRAINTS (your artifact must satisfy ALL of these):
 {json.dumps(constraints, indent=2)}
 
-INSTRUCTIONS:
-1. Answer each question carefully by analyzing the document
-2. Construct a single-line artifact that satisfies ALL constraints
-3. Your response must be EXACTLY ONE LINE - the artifact string only
-4. Do NOT include any explanation, reasoning, or preamble
-5. Output ONLY the artifact that satisfies all constraints
+INSTRUCTIONS - Follow these steps exactly:
+
+STEP 1: ANSWER EACH QUESTION
+For each question, identify the exact company name from the document. Output your answers as:
+Q1: [exact company name]
+Q2: [exact company name]
+...
+
+STEP 2: EXTRACT REQUIRED VALUES
+From your answers, extract:
+- Required city/country/names
+- Employee counts for calculations
+- Revenue figures for equations
+- Any other values needed for constraints
+
+STEP 3: CALCULATE PRECISE VALUES
+For arithmetic constraints (primes, equations), show your work:
+- nextPrime(X): calculate step by step
+- A+B=C: show each value
+
+STEP 4: CONSTRUCT THE ARTIFACT
+Build a single-line artifact that satisfies ALL constraints. Verify:
+- Word count is EXACT
+- All required words are included
+- No forbidden letters appear
+- Acrostic spells the target
+
+STEP 5: OUTPUT ONLY THE ARTIFACT
+Your final output must be EXACTLY ONE LINE - the artifact string.
+No explanation. No preamble. No JSON. Just the artifact.
 
 ARTIFACT:"""
 
@@ -239,7 +264,8 @@ ARTIFACT:"""
             json={
                 "model": VENICE_MODEL,
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.1
+                "temperature": 0.0,  # Deterministic output
+                "max_tokens": 2000
             },
             timeout=180
         )
@@ -268,6 +294,21 @@ ARTIFACT:"""
         
         if not artifact:
             raise Exception(f"Empty artifact from Venice AI: {result}")
+        
+        # Extract just the last line if model included reasoning
+        # (artifact should be the final output)
+        lines = [l.strip() for l in artifact.split('\n') if l.strip()]
+        if lines:
+            # Find the line that looks like an artifact (not a label like "Q1:" or "STEP")
+            for line in reversed(lines):
+                # Skip lines that look like labels or reasoning
+                if not any(line.upper().startswith(prefix) for prefix in 
+                          ['Q1:', 'Q2:', 'Q3:', 'Q4:', 'Q5:', 'Q6:', 'Q7:', 'Q8:', 'Q9:', 'Q10:',
+                           'STEP', 'ANSWER', 'ARTIFACT:', 'NOTE', 'VERIFY', 'CONSTRAINT']):
+                    artifact = line
+                    break
+        
+        self.log(f"Artifact ({len(artifact.split())} words): {artifact[:100]}...")
         
         self.log(f"Artifact ({len(artifact.split())} words): {artifact[:100]}...")
         return artifact
