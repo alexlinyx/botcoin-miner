@@ -15,10 +15,18 @@ from typing import Optional, Dict, Any
 from dotenv import load_dotenv
 load_dotenv()
 
+# Try to import cloudscraper for Cloudflare bypass
+try:
+    import cloudscraper
+    HAS_CLOUDSCRAPER = True
+except ImportError:
+    HAS_CLOUDSCRAPER = False
+
 # Configuration
 COORDINATOR_URL = os.environ.get("COORDINATOR_URL", "https://coordinator.agentmoney.net")
 BANKR_API_KEY = os.environ.get("BANKR_API_KEY")
 VENICE_API_KEY = os.environ.get("VENICE_API_KEY")  # Venice AI API key
+USE_CLOUDSCRAPER = os.environ.get("USE_CLOUDSCRAPER", "true").lower() == "true"
 # Best models for BOTCOIN reasoning: qwen3-235b-a22b-thinking-2507, deepseek-v3.2, zai-org-glm-5
 VENICE_MODEL = os.environ.get("VENICE_MODEL", "deepseek-v3.2")
 VENICE_BASE_URL = os.environ.get("VENICE_BASE_URL", "https://api.venice.ai/api/v1")
@@ -35,7 +43,6 @@ class BotcoinMiner:
     def __init__(self):
         self.miner_address: Optional[str] = None
         self.token: Optional[str] = None
-        self.session = requests.Session()
         
         # Stats tracking
         self.stats = {
@@ -47,6 +54,31 @@ class BotcoinMiner:
         }
         self.stats_file = "mining_stats.json"
         self._load_stats()
+        
+        # Use cloudscraper if available and enabled (bypasses Cloudflare)
+        if USE_CLOUDSCRAPER and HAS_CLOUDSCRAPER:
+            print("[INIT] Using cloudscraper for Cloudflare bypass")
+            self.session = cloudscraper.create_scraper(
+                browser={
+                    'browser': 'chrome',
+                    'platform': 'darwin',
+                    'desktop': True
+                }
+            )
+        else:
+            # Fallback to regular requests with browser headers
+            print("[INIT] Using requests with browser headers")
+            self.session = requests.Session()
+            self.session.headers.update({
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Connection": "keep-alive",
+                "Sec-Fetch-Dest": "empty",
+                "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Site": "same-origin",
+            })
         
     def _load_stats(self):
         """Load stats from file if exists."""
