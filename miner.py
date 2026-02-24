@@ -431,12 +431,6 @@ Remember: The artifact must be EXACTLY ONE LINE after "ARTIFACT:" - no other tex
         finish_reason = None
         prompt_tokens = 0
         completion_tokens = 0
-        
-        # Open streaming log for this solve
-        streaming_log = open("streaming.log", "a")
-        streaming_log.write(f"\n{'='*60}\n")
-        streaming_log.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] CHALLENGE\n")
-        streaming_log.write(f"{'='*60}\n\n")
 
         for line in resp.iter_lines():
             if not line:
@@ -455,12 +449,10 @@ Remember: The artifact must be EXACTLY ONE LINE after "ARTIFACT:" - no other tex
                 content = delta.get('content')
                 if content:
                     artifact_chunks.append(content)
-                    streaming_log.write(content)
 
                 reasoning = delta.get('reasoning_content')
                 if reasoning:
                     reasoning_chunks.append(reasoning)
-                    streaming_log.write(f"[R] {reasoning}")
 
                 # Track finish reason
                 if chunk.get('choices', [{}])[0].get('finish_reason'):
@@ -474,22 +466,6 @@ Remember: The artifact must be EXACTLY ONE LINE after "ARTIFACT:" - no other tex
 
             except json.JSONDecodeError:
                 continue
-        
-        # Close streaming log
-        streaming_log.write(f"\n\n[FINISH: {finish_reason}] [TOKENS: {prompt_tokens}+{completion_tokens}]\n")
-        streaming_log.close()
-        
-        # Rotate: keep only last 3 challenges
-        try:
-            with open("streaming.log", "r") as f:
-                content = f.read()
-            solves = content.split("=" * 60)
-            if len(solves) > 4:  # 3 challenges + header
-                trimmed = ("=" * 60).join(solves[-4:])
-                with open("streaming.log", "w") as f:
-                    f.write(trimmed)
-        except:
-            pass
 
         self.log(f"Response received")
 
@@ -535,7 +511,7 @@ Remember: The artifact must be EXACTLY ONE LINE after "ARTIFACT:" - no other tex
 
     # ==================== SUBMIT ====================
 
-    def submit(self, challenge: Dict, artifact: str) -> Dict:
+    def submit(self, challenge: Dict, artifact: str, reasoning_chunks: list = None, prompt_tokens: int = 0, completion_tokens: int = 0) -> Dict:
         """Submit the solution to coordinator."""
         resp = self.session.post(
             f"{COORDINATOR_URL}/v1/submit",
@@ -596,10 +572,38 @@ Remember: The artifact must be EXACTLY ONE LINE after "ARTIFACT:" - no other tex
         else:
             failed = result.get("failedConstraintIndices", [])
             self.log(f"✗ FAILED. Constraints: {failed}")
+            
+            # Save failed challenge to streaming.log for debugging
+            self._log_failed_challenge(challenge, artifact, failed, reasoning_chunks or [], prompt_tokens, completion_tokens)
 
         return result
 
     # ==================== ON-CHAIN ====================
+
+    def _log_failed_challenge(self, challenge: Dict, artifact: str, failed_constraints: list, reasoning_chunks: list, prompt_tokens: int, completion_tokens: int):
+        """Save failed challenge to streaming.log for debugging."""
+        try:
+            streaming_log = open("streaming.log", "a")
+            streaming_log.write(f"\n{'='*60}\n")
+            streaming_log.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] FAILED CHALLENGE\n")
+            streaming_log.write(f"Constraints failed: {failed_constraints}\n")
+            streaming_log.write(f"{'='*60}\n\n")
+            streaming_log.write(f"REASONING:\n")
+            streaming_log.write(''.join(reasoning_chunks))
+            streaming_log.write(f"\n\nARTIFACT: {artifact}\n")
+            streaming_log.write(f"[TOKENS: {prompt_tokens}+{completion_tokens}]\n")
+            streaming_log.close()
+            
+            # Rotate: keep only last 3 failed challenges
+            with open("streaming.log", "r") as f:
+                content = f.read()
+            solves = content.split("=" * 60)
+            if len(solves) > 4:  # 3 failed + header
+                trimmed = ("=" * 60).join(solves[-4:])
+                with open("streaming.log", "w") as f:
+                    f.write(trimmed)
+        except:
+            pass  # Don't fail if logging fails
 
     def post_receipt(self, submit_result: Dict) -> Dict:
         """Post the mining receipt on-chain."""
@@ -656,7 +660,7 @@ Remember: The artifact must be EXACTLY ONE LINE after "ARTIFACT:" - no other tex
                 artifact = self.solve(challenge, previous_artifact, failed_constraints)
 
                 # Submit
-                result = self.submit(challenge, artifact)
+                result = self.submit(challenge, artifact, reasoning_chunks, prompt_tokens, completion_tokens)
 
                 if result.get("pass"):
                     # Post on-chain
