@@ -416,20 +416,12 @@ ARTIFACT:"""
             raise Exception(f"Venice AI error ({resp.status_code}): {error_msg}")
         
         # Collect streaming response
-        self.log(f"Streaming response from Venice AI (saving to streaming.log)...")
+        self.log(f"Solving challenge with Venice AI...")
         artifact_chunks = []
         reasoning_chunks = []
         finish_reason = None
         prompt_tokens = 0
         completion_tokens = 0
-        chunk_count = 0
-        
-        # Open streaming log file for this solve attempt
-        streaming_log = open("streaming.log", "a")
-        streaming_log.write(f"\n{'='*60}\n")
-        streaming_log.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] STREAMING RESPONSE\n")
-        streaming_log.write(f"Model: {VENICE_MODEL}\n")
-        streaming_log.write(f"{'='*60}\n")
         
         for line in resp.iter_lines():
             if not line:
@@ -448,14 +440,10 @@ ARTIFACT:"""
                 content = delta.get('content')
                 if content:
                     artifact_chunks.append(content)
-                    streaming_log.write(content)
-                    chunk_count += 1
                 
                 reasoning = delta.get('reasoning_content')
                 if reasoning:
                     reasoning_chunks.append(reasoning)
-                    streaming_log.write(f"[REASONING] {reasoning}")
-                    chunk_count += 1
                 
                 # Track finish reason
                 if chunk.get('choices', [{}])[0].get('finish_reason'):
@@ -470,25 +458,7 @@ ARTIFACT:"""
             except json.JSONDecodeError:
                 continue
         
-        # Close streaming log
-        streaming_log.write(f"\n\n[FINISH_REASON: {finish_reason}]\n")
-        streaming_log.write(f"[CHUNKS: {chunk_count}]\n")
-        streaming_log.close()
-        
-        # Rotate log: keep only last 10 solves (prevents file from growing too large)
-        try:
-            with open("streaming.log", "r") as f:
-                content = f.read()
-            # Split by solve markers and keep last 10
-            solves = content.split("=" * 60)
-            if len(solves) > 11:  # 10 solves + header
-                trimmed = ("=" * 60).join(solves[-11:])
-                with open("streaming.log", "w") as f:
-                    f.write(trimmed)
-        except:
-            pass  # Don't fail if log rotation fails
-        
-        self.log(f"Received {chunk_count} chunks")
+        self.log(f"Response received")
         
         # Combine chunks
         artifact = ''.join(artifact_chunks).strip()
