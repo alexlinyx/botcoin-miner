@@ -271,6 +271,24 @@ class BotcoinMiner:
         # Debug: log raw response
         self.log(f"Challenge response status: {resp.status_code}")
         
+        # Handle 401 - token expired, re-auth and retry once
+        if resp.status_code == 401:
+            error_data = {}
+            try:
+                error_data = resp.json()
+            except:
+                pass
+            if error_data.get("reason") == "token_expired" or resp.status_code == 401:
+                self.log("Token expired, re-authenticating...")
+                self.auth()
+                # Retry with new token
+                resp = self.session.get(
+                    f"{COORDINATOR_URL}/v1/challenge",
+                    params={"miner": self.miner_address, "nonce": nonce},
+                    headers={"Authorization": f"Bearer {self.token}"}
+                )
+                self.log(f"Retry challenge response status: {resp.status_code}")
+        
         # Handle non-200 responses
         if resp.status_code != 200:
             self.log(f"Challenge error response: {resp.text[:500]}")
@@ -520,6 +538,28 @@ ARTIFACT:"""
         
         # Debug: log response status
         self.log(f"Submit response status: {resp.status_code}")
+        
+        # Handle 401 - token expired, re-auth and retry once
+        if resp.status_code == 401:
+            error_data = resp.json() if resp.text else {}
+            if error_data.get("reason") == "token_expired":
+                self.log("Token expired, re-authenticating...")
+                self.auth()
+                # Retry with new token
+                resp = self.session.post(
+                    f"{COORDINATOR_URL}/v1/submit",
+                    headers={
+                        "Authorization": f"Bearer {self.token}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "miner": self.miner_address,
+                        "challengeId": challenge.get("challengeId"),
+                        "artifact": artifact,
+                        "nonce": challenge.get("_nonce")
+                    }
+                )
+                self.log(f"Retry submit response status: {resp.status_code}")
         
         # Handle non-200 responses
         if resp.status_code != 200:
