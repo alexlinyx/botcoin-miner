@@ -8,6 +8,7 @@ import os
 import json
 import time
 import hashlib
+import random
 import requests
 from typing import Optional, Dict, Any, Tuple
 from dotenv import load_dotenv
@@ -225,11 +226,38 @@ class BotcoinMiner:
         """Authenticate with coordinator and get bearer token."""
         self.log("Authenticating with coordinator...")
 
-        # Step 1: Get nonce
-        resp = self.session.post(
-            f"{COORDINATOR_URL}/v1/auth/nonce",
-            json={"miner": self.miner_address}
-        )
+        backoff_schedule = [2, 4, 8, 16, 30, 60]
+
+        # Step 1: Get nonce (with limited retry/backoff on 429/5xx)
+        attempt = 0
+        while True:
+            resp = self.session.post(
+                f"{COORDINATOR_URL}/v1/auth/nonce",
+                json={"miner": self.miner_address}
+            )
+
+            if resp.status_code in (429,) or 500 <= resp.status_code < 600:
+                if attempt >= len(backoff_schedule):
+                    self.log(f"Nonce request exhausted retries ({resp.status_code}): {resp.text[:200]}")
+                    raise Exception(f"Nonce request failed after retries: {resp.status_code}")
+
+                delay = backoff_schedule[attempt]
+                attempt += 1
+                try:
+                    err = resp.json()
+                    retry_after = err.get("retryAfterSeconds")
+                    if isinstance(retry_after, (int, float)) and retry_after > 0:
+                        delay = max(delay, retry_after)
+                except Exception:
+                    pass
+
+                jitter = delay * random.uniform(0, 0.25)
+                wait = delay + jitter
+                self.log(f"Nonce request rate-limited/errored ({resp.status_code}), retrying in {wait:.1f}s")
+                time.sleep(wait)
+                continue
+
+            break
 
         if resp.status_code != 200:
             self.log(f"Nonce error: {resp.text[:500]}")
@@ -244,15 +272,45 @@ class BotcoinMiner:
         # Step 2: Sign message
         signature = self.bankr_sign(message)
 
-        # Step 3: Verify and get token
-        resp = self.session.post(
-            f"{COORDINATOR_URL}/v1/auth/verify",
-            json={
-                "miner": self.miner_address,
-                "message": message,
-                "signature": signature
-            }
-        )
+        # Step 3: Verify and get token (with limited retry/backoff on 429/5xx)
+        attempt = 0
+        backoff_schedule = [2, 4, 8]
+        while True:
+            resp = self.session.post(
+                f"{COORDINATOR_URL}/v1/auth/verify",
+                json={
+                    "miner": self.miner_address,
+                    "message": message,
+                    "signature": signature
+                }
+            )
+
+            if resp.status_code in (429,) or 500 <= resp.status_code < 600:
+                if attempt >= len(backoff_schedule):
+                    self.log(f"Verify exhausted retries ({resp.status_code}): {resp.text[:200]}")
+                    raise Exception(f"Verify request failed after retries: {resp.status_code}")
+
+                delay = backoff_schedule[attempt]
+                attempt += 1
+                try:
+                    err = resp.json()
+                    retry_after = err.get("retryAfterSeconds")
+                    if isinstance(retry_after, (int, float)) and retry_after > 0:
+                        delay = max(delay, retry_after)
+                except Exception:
+                    pass
+
+                jitter = delay * random.uniform(0, 0.25)
+                wait = delay + jitter
+                self.log(f"Verify rate-limited/errored ({resp.status_code}), retrying in {wait:.1f}s")
+                time.sleep(wait)
+                continue
+
+            break
+
+        if resp.status_code == 403:
+            self.log(f"Verify forbidden (likely insufficient balance): {resp.text[:200]}")
+            raise Exception(f"Verify forbidden (403): {resp.text[:200]}")
 
         if resp.status_code != 200:
             self.log(f"Verify error: {resp.text[:500]}")
@@ -275,34 +333,66 @@ class BotcoinMiner:
         import secrets
         nonce = secrets.token_hex(16)
 
-        resp = self.session.get(
-            f"{COORDINATOR_URL}/v1/challenge",
-            params={"miner": self.miner_address, "nonce": nonce},
-            headers={"Authorization": f"Bearer {self.token}"}
-        )
+        backoff_schedule = [2, 4, 8, 16, 30, 60]
+        attempt = 0
 
-        # Debug: log raw response
-        self.log(f"Challenge response status: {resp.status_code}")
+        while True:
+            resp = self.session.get(
+                f"{COORDINATOR_URL}/v1/challenge",
+                params={"miner": self.miner_address, "nonce": nonce},
+                headers={"Authorization": f"Bearer {self.token}"}
+            )
 
-        # Handle 401 - token expired, re-auth and retry once
-        if resp.status_code == 401:
-            error_data = {}
-            try:
-                error_data = resp.json()
-            except:
-                pass
-            if error_data.get("reason") == "token_expired" or resp.status_code == 401:
-                self.log("Token expired, re-authenticating...")
-                self.auth()
-                # Retry with new token
-                resp = self.session.get(
-                    f"{COORDINATOR_URL}/v1/challenge",
-                    params={"miner": self.miner_address, "nonce": nonce},
-                    headers={"Authorization": f"Bearer {self.token}"}
-                )
-                self.log(f"Retry challenge response status: {resp.status_code}")
+            # Debug: log raw response
+            self.log(f"Challenge response status: {resp.status_code}")
+
+            # Handle 401 - token expired, re-auth and retry once (no backoff)
+            if resp.status_code == 401:
+                error_data = {}
+                try:
+                    error_data = resp.json()
+                except Exception:
+                    pass
+                if error_data.get("reason") == "token_expired":
+                    self.log("Token expired, re-authenticating...")
+                    self.auth()
+                    # Retry once with new token
+                    resp = self.session.get(
+                        f"{COORDINATOR_URL}/v1/challenge",
+                        params={"miner": self.miner_address, "nonce": nonce},
+                        headers={"Authorization": f"Bearer {self.token}"}
+                    )
+                    self.log(f"Retry challenge response status: {resp.status_code}")
+
+            # Backoff on 429/5xx
+            if resp.status_code in (429,) or 500 <= resp.status_code < 600:
+                if attempt >= len(backoff_schedule):
+                    self.log(f"Challenge exhausted retries ({resp.status_code}): {resp.text[:200]}")
+                    raise Exception(f"Challenge request failed after retries: {resp.status_code}")
+
+                delay = backoff_schedule[attempt]
+                attempt += 1
+                try:
+                    err = resp.json()
+                    retry_after = err.get("retryAfterSeconds")
+                    if isinstance(retry_after, (int, float)) and retry_after > 0:
+                        delay = max(delay, retry_after)
+                except Exception:
+                    pass
+
+                jitter = delay * random.uniform(0, 0.25)
+                wait = delay + jitter
+                self.log(f"Challenge rate-limited/errored ({resp.status_code}), retrying in {wait:.1f}s")
+                time.sleep(wait)
+                continue
+
+            break
 
         # Handle non-200 responses
+        if resp.status_code == 403:
+            self.log(f"Challenge forbidden (likely insufficient balance): {resp.text[:200]}")
+            raise Exception(f"Challenge forbidden (403): {resp.text[:200]}")
+
         if resp.status_code != 200:
             self.log(f"Challenge error response: {resp.text[:500]}")
             raise Exception(f"Challenge request failed with status {resp.status_code}: {resp.text[:200]}")
@@ -523,44 +613,77 @@ Remember: The artifact must be EXACTLY ONE LINE after "ARTIFACT:" - no other tex
 
     def submit(self, challenge: Dict, artifact: str, reasoning_chunks: list = None, prompt_tokens: int = 0, completion_tokens: int = 0) -> Dict:
         """Submit the solution to coordinator."""
-        resp = self.session.post(
-            f"{COORDINATOR_URL}/v1/submit",
-            headers={
-                "Authorization": f"Bearer {self.token}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "miner": self.miner_address,
-                "challengeId": challenge.get("challengeId"),
-                "artifact": artifact,
-                "nonce": challenge.get("_nonce")
-            }
-        )
+        backoff_schedule = [2, 4, 8, 16, 30, 60]
+        attempt = 0
 
-        # Debug: log response status
-        self.log(f"Submit response status: {resp.status_code}")
+        while True:
+            resp = self.session.post(
+                f"{COORDINATOR_URL}/v1/submit",
+                headers={
+                    "Authorization": f"Bearer {self.token}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "miner": self.miner_address,
+                    "challengeId": challenge.get("challengeId"),
+                    "artifact": artifact,
+                    "nonce": challenge.get("_nonce")
+                }
+            )
 
-        # Handle 401 - token expired, re-auth and retry once
-        if resp.status_code == 401:
-            error_data = resp.json() if resp.text else {}
-            if error_data.get("reason") == "token_expired":
-                self.log("Token expired, re-authenticating...")
-                self.auth()
-                # Retry with new token
-                resp = self.session.post(
-                    f"{COORDINATOR_URL}/v1/submit",
-                    headers={
-                        "Authorization": f"Bearer {self.token}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "miner": self.miner_address,
-                        "challengeId": challenge.get("challengeId"),
-                        "artifact": artifact,
-                        "nonce": challenge.get("_nonce")
-                    }
-                )
-                self.log(f"Retry submit response status: {resp.status_code}")
+            # Debug: log response status
+            self.log(f"Submit response status: {resp.status_code}")
+
+            # Handle 401 - token expired, re-auth and retry once (no backoff)
+            if resp.status_code == 401:
+                error_data = resp.json() if resp.text else {}
+                if error_data.get("reason") == "token_expired":
+                    self.log("Token expired, re-authenticating...")
+                    self.auth()
+                    # Retry with new token
+                    resp = self.session.post(
+                        f"{COORDINATOR_URL}/v1/submit",
+                        headers={
+                            "Authorization": f"Bearer {self.token}",
+                            "Content-Type": "application/json"
+                        },
+                        json={
+                            "miner": self.miner_address,
+                            "challengeId": challenge.get("challengeId"),
+                            "artifact": artifact,
+                            "nonce": challenge.get("_nonce")
+                        }
+                    )
+                    self.log(f"Retry submit response status: {resp.status_code}")
+
+            # Backoff on 429/5xx
+            if resp.status_code in (429,) or 500 <= resp.status_code < 600:
+                if attempt >= len(backoff_schedule):
+                    self.log(f"Submit exhausted retries ({resp.status_code}): {resp.text[:200]}")
+                    raise Exception(f"Submit failed after retries: {resp.status_code}")
+
+                delay = backoff_schedule[attempt]
+                attempt += 1
+                try:
+                    err = resp.json()
+                    retry_after = err.get("retryAfterSeconds")
+                    if isinstance(retry_after, (int, float)) and retry_after > 0:
+                        delay = max(delay, retry_after)
+                except Exception:
+                    pass
+
+                jitter = delay * random.uniform(0, 0.25)
+                wait = delay + jitter
+                self.log(f"Submit rate-limited/errored ({resp.status_code}), retrying in {wait:.1f}s")
+                time.sleep(wait)
+                continue
+
+            break
+
+        # Special-case 404: stale challenge / nonce mismatch at coordinator level
+        if resp.status_code == 404:
+            self.log(f"Submit returned 404 (stale challenge): {resp.text[:200]}")
+            return {"error": "stale_challenge"}
 
         # Handle non-200 responses
         if resp.status_code != 200:
@@ -757,8 +880,12 @@ Remember: The artifact must be EXACTLY ONE LINE after "ARTIFACT:" - no other tex
                     failed_constraints = result.get("failedConstraintIndices", [])
                     previous_artifact = artifact
 
-                    # Check if we got a new challenge (nonce mismatch means old challenge is stale)
-                    if "error" in result and "nonce" in str(result.get("error", "")).lower():
+                    # Check if we got a new challenge (nonce mismatch or 404 means old challenge is stale)
+                    error_field = result.get("error")
+                    if error_field and (
+                        "nonce" in str(error_field).lower()
+                        or error_field == "stale_challenge"
+                    ):
                         self.log("Challenge stale, getting new one...")
                         challenge = self.get_challenge()
                         # Refresh challenge components
