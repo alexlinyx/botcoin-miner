@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 BOTCOIN Miner - Mines BOTCOIN by solving AI challenges on Base.
-Requires BANKR_API_KEY for wallet operations and on-chain transactions.
+Uses multi-agent orchestration for better accuracy.
 """
 
 import os
@@ -9,10 +9,12 @@ import json
 import time
 import hashlib
 import requests
-from typing import Optional, Dict, Any
-
-# Load environment variables from .env file
+from typing import Optional, Dict, Any, Tuple
 from dotenv import load_dotenv
+
+# Import multi-agent orchestration
+from agents import Orchestrator
+
 load_dotenv()
 
 # Try to import cloudscraper for Cloudflare bypass
@@ -50,7 +52,7 @@ class BotcoinMiner:
     def __init__(self):
         self.miner_address: Optional[str] = None
         self.token: Optional[str] = None
-
+        
         # Stats tracking
         self.stats = {
             "solves": 0,
@@ -60,6 +62,7 @@ class BotcoinMiner:
             "last_solve_time": None
         }
         self.stats_file = "mining_stats.json"
+        self.total_tokens = 0  # Track total token usage
         self._load_stats()
 
         # Use cloudscraper if available and enabled (bypasses Cloudflare)
@@ -572,7 +575,7 @@ Remember: The artifact must be EXACTLY ONE LINE after "ARTIFACT:" - no other tex
         else:
             failed = result.get("failedConstraintIndices", [])
             self.log(f"✗ FAILED. Constraints: {failed}")
-            
+
             # Save failed challenge to streaming.log for debugging
             self._log_failed_challenge(challenge, artifact, failed, reasoning_chunks or [], prompt_tokens, completion_tokens)
 
@@ -593,7 +596,7 @@ Remember: The artifact must be EXACTLY ONE LINE after "ARTIFACT:" - no other tex
             streaming_log.write(f"\n\nARTIFACT: {artifact}\n")
             streaming_log.write(f"[TOKENS: {prompt_tokens}+{completion_tokens}]\n")
             streaming_log.close()
-            
+
             # Rotate: keep only last 3 failed challenges
             with open("streaming.log", "r") as f:
                 content = f.read()
