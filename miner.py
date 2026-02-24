@@ -203,7 +203,7 @@ class BotcoinMiner:
     
     def ensure_balance(self) -> bool:
         """Skip balance check - coordinator verifies on-chain."""
-        self.log("Balance check skipped - coordinator will verify on-chain")
+        self.log(f"Using model: {VENICE_MODEL}")
         return True
     
     # ==================== AUTH ====================
@@ -422,6 +422,7 @@ ARTIFACT:"""
         finish_reason = None
         prompt_tokens = 0
         completion_tokens = 0
+        chunk_count = 0
         
         for line in resp.iter_lines():
             if not line:
@@ -440,10 +441,16 @@ ARTIFACT:"""
                 content = delta.get('content')
                 if content:
                     artifact_chunks.append(content)
+                    # Real-time output: print content as it arrives
+                    print(content, end='', flush=True)
+                    chunk_count += 1
                 
                 reasoning = delta.get('reasoning_content')
                 if reasoning:
                     reasoning_chunks.append(reasoning)
+                    # Print reasoning in dim/gray if terminal supports it
+                    print(f"\033[90m{reasoning}\033[0m", end='', flush=True)
+                    chunk_count += 1
                 
                 # Track finish reason
                 if chunk.get('choices', [{}])[0].get('finish_reason'):
@@ -457,6 +464,12 @@ ARTIFACT:"""
                     
             except json.JSONDecodeError:
                 continue
+        
+        # Newline after streaming output
+        if chunk_count > 0:
+            print()  # Newline after streaming
+        
+        self.log(f"Received {chunk_count} chunks")
         
         # Combine chunks
         artifact = ''.join(artifact_chunks).strip()
