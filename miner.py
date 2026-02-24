@@ -19,6 +19,9 @@ VENICE_API_KEY = os.environ.get("VENICE_API_KEY")  # Venice AI API key
 VENICE_MODEL = os.environ.get("VENICE_MODEL", "deepseek-v3.2")
 VENICE_BASE_URL = os.environ.get("VENICE_BASE_URL", "https://api.venice.ai/api/v1")
 
+# Self-correction settings
+MAX_RETRIES = int(os.environ.get("MAX_RETRIES", "3"))  # Retries per challenge before getting new one
+
 # Botcoin token address
 BOTCOIN_ADDRESS = "0xA601877977340862Ca67f816eb079958E5bd0BA3"
 MIN_BALANCE = 25_000_000  # Minimum BOTCOIN to mine
@@ -197,14 +200,14 @@ class BotcoinMiner:
     
     # ==================== SOLVE ====================
     
-    def solve(self, challenge: Dict) -> str:
-        """Solve the challenge using LLM with two-pass approach."""
+    def solve(self, challenge: Dict, previous_artifact: str = None, failed_constraints: list = None) -> str:
+        """Solve the challenge using LLM with two-pass approach and self-correction."""
         doc = challenge.get("doc", "")
         questions = challenge.get("questions", [])
         constraints = challenge.get("constraints", [])
         companies = challenge.get("companies", [])
         
-        # Two-pass prompt for better accuracy
+        # Base prompt
         prompt = f"""You are solving a BOTCOIN mining challenge. This requires precise multi-hop reasoning and constraint satisfaction.
 
 DOCUMENT:
@@ -217,7 +220,38 @@ QUESTIONS TO ANSWER:
 {json.dumps(questions, indent=2)}
 
 CONSTRAINTS (your artifact must satisfy ALL of these):
-{json.dumps(constraints, indent=2)}
+{json.dumps(constraints, indent=2)}"""
+        
+        # Add self-correction feedback if this is a retry
+        if previous_artifact and failed_constraints:
+            prompt += f"""
+
+=== SELF-CORCTION MODE ===
+Your previous artifact FAILED. Here's what went wrong:
+
+Previous artifact: "{previous_artifact}"
+
+Failed constraints: {failed_constraints}
+(Constraint indices are 0-based: 0 = first constraint, 1 = second, etc.)
+
+You must fix these specific issues. Re-analyze the document and constraints.
+Pay extra attention to:
+- Exact word count requirements
+- Required words/phrases that must be included
+- Forbidden letters that must NOT appear
+- Acrostic requirements (first letters of first N words)
+- Arithmetic calculations (primes, equations)
+
+COMMON MISTAKES TO AVOID:
+1. Wrong word count - count EXACTLY
+2. Missing required words - check spelling exactly
+3. Forbidden letters - scan every word carefully
+4. Wrong acrostic - verify first letters match target
+5. Arithmetic errors - recalculate primes and equations
+
+Now construct a NEW artifact that fixes these issues."""
+        else:
+            prompt += """
 
 INSTRUCTIONS - Follow these steps exactly:
 
@@ -244,7 +278,9 @@ Build a single-line artifact that satisfies ALL constraints. Verify:
 - Word count is EXACT
 - All required words are included
 - No forbidden letters appear
-- Acrostic spells the target
+- Acrostic spells the target"""
+        
+        prompt += """
 
 STEP 5: OUTPUT ONLY THE ARTIFACT
 Your final output must be EXACTLY ONE LINE - the artifact string.
@@ -252,7 +288,7 @@ No explanation. No preamble. No JSON. Just the artifact.
 
 ARTIFACT:"""
 
-        self.log("Solving challenge with Venice AI...")
+        self.log(f"Solving challenge with Venice AI...{'(RETRY)' if previous_artifact else ''}")
         
         # Call Venice AI API (OpenAI-compatible)
         resp = requests.post(
@@ -296,19 +332,15 @@ ARTIFACT:"""
             raise Exception(f"Empty artifact from Venice AI: {result}")
         
         # Extract just the last line if model included reasoning
-        # (artifact should be the final output)
         lines = [l.strip() for l in artifact.split('\n') if l.strip()]
         if lines:
-            # Find the line that looks like an artifact (not a label like "Q1:" or "STEP")
             for line in reversed(lines):
-                # Skip lines that look like labels or reasoning
                 if not any(line.upper().startswith(prefix) for prefix in 
                           ['Q1:', 'Q2:', 'Q3:', 'Q4:', 'Q5:', 'Q6:', 'Q7:', 'Q8:', 'Q9:', 'Q10:',
-                           'STEP', 'ANSWER', 'ARTIFACT:', 'NOTE', 'VERIFY', 'CONSTRAINT']):
+                           'STEP', 'ANSWER', 'ARTIFACT:', 'NOTE', 'VERIFY', 'CONSTRAINT',
+                           'PREVIOUS', 'FAILED', 'SELF-CORRECTION']):
                     artifact = line
                     break
-        
-        self.log(f"Artifact ({len(artifact.split())} words): {artifact[:100]}...")
         
         self.log(f"Artifact ({len(artifact.split())} words): {artifact[:100]}...")
         return artifact
@@ -361,28 +393,47 @@ ARTIFACT:"""
     # ==================== MAIN LOOP ====================
     
     def mine_one(self) -> bool:
-        """Run one mining cycle. Returns True if successful."""
-        try:
-            # Get challenge
-            challenge = self.get_challenge()
-            
-            # Solve
-            artifact = self.solve(challenge)
-            
-            # Submit
-            result = self.submit(challenge, artifact)
-            
-            if result.get("pass"):
-                # Post on-chain
-                self.post_receipt(result)
-                return True
-            else:
-                self.log("Challenge failed, getting new one...")
-                return False
+        """Run one mining cycle with self-correction. Returns True if successful."""
+        previous_artifact = None
+        failed_constraints = None
+        
+        # Get challenge once, retry with same challenge
+        challenge = self.get_challenge()
+        
+        for attempt in range(MAX_RETRIES):
+            try:
+                # Solve (with feedback if retry)
+                artifact = self.solve(challenge, previous_artifact, failed_constraints)
                 
-        except Exception as e:
-            self.log(f"Error in mining cycle: {e}")
-            return False
+                # Submit
+                result = self.submit(challenge, artifact)
+                
+                if result.get("pass"):
+                    # Post on-chain
+                    self.post_receipt(result)
+                    return True
+                else:
+                    # Extract failed constraints for next retry
+                    failed_constraints = result.get("failedConstraintIndices", [])
+                    previous_artifact = artifact
+                    
+                    # Check if we got a new challenge (nonce mismatch means old challenge is stale)
+                    if "error" in result and "nonce" in str(result.get("error", "")).lower():
+                        self.log("Challenge stale, getting new one...")
+                        challenge = self.get_challenge()
+                        previous_artifact = None
+                        failed_constraints = None
+                    
+                    self.log(f"Attempt {attempt + 1}/{MAX_RETRIES} failed. Constraints: {failed_constraints}")
+                    
+            except Exception as e:
+                self.log(f"Error in attempt {attempt + 1}: {e}")
+                if attempt < MAX_RETRIES - 1:
+                    self.log("Retrying...")
+                    time.sleep(2)
+        
+        self.log(f"Failed after {MAX_RETRIES} attempts, getting new challenge...")
+        return False
     
     def run(self):
         """Main mining loop."""
