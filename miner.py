@@ -435,7 +435,7 @@ ARTIFACT:"""
                 "model": VENICE_MODEL,
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.0,  # Deterministic output
-                "max_tokens": MAX_TOKENS if MAX_TOKENS > 0 else None,  # None = unlimited
+                "max_tokens": MAX_TOKENS if MAX_TOKENS > 0 else 64000,  # Venice requires number, 64K is very high
             },
             timeout=LLM_TIMEOUT if LLM_TIMEOUT > 0 else None,  # None = no timeout
         )
