@@ -428,7 +428,7 @@ Remember: The artifact must be EXACTLY ONE LINE after "ARTIFACT:" - no other tex
             raise Exception(f"Venice AI error ({resp.status_code}): {error_msg}")
 
         # Collect streaming response
-        self.log(f"Solving challenge with Venice AI...")
+        self.log(f"Using multi-agent orchestration...")
         artifact_chunks = []
         reasoning_chunks = []
         finish_reason = None
