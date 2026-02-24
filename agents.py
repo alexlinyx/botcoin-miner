@@ -21,7 +21,7 @@ load_dotenv()
 VENICE_API_KEY = os.environ.get("VENICE_API_KEY")
 VENICE_MODEL = os.environ.get("VENICE_MODEL", "zai-org-glm-5")
 VENICE_BASE_URL = os.environ.get("VENICE_BASE_URL", "https://api.venice.ai/api/v1")
-CONCURRENT_SWARM = os.environ.get("CONCURRENT_SWARM", "false").lower() == "true"
+CONCURRENT_SWARM = int(os.environ.get("CONCURRENT_SWARM", "1"))  # Number of parallel agents (1 = sequential)
 MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "16000"))
 MAX_RETRIES = int(os.environ.get("MAX_RETRIES", "3"))
 
@@ -223,13 +223,16 @@ class Orchestrator:
     
     def solve_all_questions(self, doc: str, questions: List[str], companies: List[str]) -> Dict[int, str]:
         """Solve all questions using agent swarm."""
-        self.log(f"Solving {len(questions)} questions ({'CONCURRENT' if CONCURRENT_SWARM else 'SEQUENTIAL'} mode)...")
+        mode = f"CONCURRENT={CONCURRENT_SWARM}" if CONCURRENT_SWARM > 1 else "SEQUENTIAL"
+        self.log(f"Solving {len(questions)} questions ({mode} mode)...")
         
-        if CONCURRENT_SWARM:
-            # Parallel execution (if system supports it)
+        if CONCURRENT_SWARM > 1:
+            # Parallel execution with limited concurrency
             from concurrent.futures import ThreadPoolExecutor, as_completed
             
-            with ThreadPoolExecutor(max_workers=min(len(questions), 10)) as executor:
+            max_workers = min(CONCURRENT_SWARM, len(questions))
+            
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {
                     executor.submit(self.solve_question, doc, i+1, q, companies): i+1
                     for i, q in enumerate(questions)
@@ -237,8 +240,12 @@ class Orchestrator:
                 
                 for future in as_completed(futures):
                     q_num = futures[future]
-                    answer = future.result()
-                    self.answers[q_num] = answer
+                    try:
+                        answer = future.result()
+                        self.answers[q_num] = answer
+                    except Exception as e:
+                        self.log(f"  Q{q_num} ✗ Error: {e}")
+                        self.answers[q_num] = "UNKNOWN"
         else:
             # Sequential execution
             for i, question in enumerate(questions):
