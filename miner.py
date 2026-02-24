@@ -473,11 +473,14 @@ ARTIFACT:"""
                 chunk = json.loads(data)
                 delta = chunk.get('choices', [{}])[0].get('delta', {})
                 
-                # Collect content
-                if 'content' in delta:
-                    artifact_chunks.append(delta['content'])
-                if 'reasoning_content' in delta:
-                    reasoning_chunks.append(delta['reasoning_content'])
+                # Collect content (handle None values)
+                content = delta.get('content')
+                if content:
+                    artifact_chunks.append(content)
+                
+                reasoning = delta.get('reasoning_content')
+                if reasoning:
+                    reasoning_chunks.append(reasoning)
                 
                 # Track finish reason
                 if chunk.get('choices', [{}])[0].get('finish_reason'):
