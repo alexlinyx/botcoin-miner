@@ -27,12 +27,18 @@ COORDINATOR_URL = os.environ.get("COORDINATOR_URL", "https://coordinator.agentmo
 BANKR_API_KEY = os.environ.get("BANKR_API_KEY")
 VENICE_API_KEY = os.environ.get("VENICE_API_KEY")  # Venice AI API key
 USE_CLOUDSCRAPER = os.environ.get("USE_CLOUDSCRAPER", "true").lower() == "true"
-# Best models for BOTCOIN reasoning: qwen3-235b-a22b-thinking-2507, deepseek-v3.2, zai-org-glm-5
-VENICE_MODEL = os.environ.get("VENICE_MODEL", "deepseek-v3.2")
+
+# Recommended models for BOTCOIN (reasoning-capable):
+#   - qwen3-235b-a22b-thinking-2507 (best reasoning, $0.45/$3.50)
+#   - kimi-k2-thinking (long context reasoning, $0.75/$3.20)
+#   - zai-org-glm-5 (frontier reasoning, $1.00/$3.20)
+#   - deepseek-v3.2 (good value, $0.40/$1.00 but verbose)
+VENICE_MODEL = os.environ.get("VENICE_MODEL", "qwen3-235b-a22b-thinking-2507")
 VENICE_BASE_URL = os.environ.get("VENICE_BASE_URL", "https://api.venice.ai/api/v1")
 
 # Self-correction settings
 MAX_RETRIES = int(os.environ.get("MAX_RETRIES", "3"))  # Retries per challenge before getting new one
+MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "16000"))  # Token limit for LLM response
 
 # Botcoin token address
 BOTCOIN_ADDRESS = "0xA601877977340862Ca67f816eb079958E5bd0BA3"
@@ -434,7 +440,7 @@ ARTIFACT:"""
                 "model": VENICE_MODEL,
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.0,  # Deterministic output
-                "max_tokens": 8000   # Increased for reasoning models
+                "max_tokens": MAX_TOKENS  # Configurable via env
             },
             timeout=300  # 5 minutes for reasoning
         )
