@@ -18,8 +18,27 @@ Autonomous miner for BOTCOIN on Base. Solves AI challenges and earns on-chain cr
 - **BOTCOIN tokens** (minimum 25M) on Base in your Bankr wallet
 - **ETH on Base** for gas (~$5-10 sufficient)
 
-BOTCOIN challenges require **multi-hop reasoning** and **precise arithmetic**. Use models with `supportsReasoning: true`:
+BOTCOIN challenges require **multi-hop reasoning** and **precise arithmetic**. Use models with `supportsReasoning: true`.
 **Avoid** models without reasoning support (e.g., `llama-3.3-70b`) - they will fail on BOTCOIN challenges.
+
+### Model configuration
+
+You configure models via environment variables (see `.env.example`):
+
+- **`ORCHESTRATOR_MODEL`**: Main reasoning model for challenge understanding and artifact construction.  
+  Used by the orchestrator to:
+  - Read the full `doc` + `questions` + `constraints` + `companies` payload.
+  - Coordinate solver calls.
+  - Build the final artifact string.
+
+- **`SOLVER_MODEL_PRIMARY`**: Default per-question solver model.  
+  Used by solver sub-agents to answer each question on the **first pass** of a challenge.
+
+- **`SOLVER_MODEL_BACKUP`**: Backup solver model.  
+  Used only when a submission fails and specific `failedConstraintIndices` are mapped back to questions.  
+  The orchestrator re-runs solvers for those questions with the backup model before rebuilding the artifact.
+
+If `SOLVER_MODEL_PRIMARY` or `SOLVER_MODEL_BACKUP` are not set, they fall back to `ORCHESTRATOR_MODEL` so a single model can be used for the whole pipeline.
 
 ## Setup
 
@@ -73,6 +92,56 @@ python miner.py
        │
        ▼
     REPEAT
+```
+
+### Agent architecture (Orchestrator & Solver)
+
+At solve time the miner uses two logical agent roles:
+
+- **Orchestrator**:
+  - Receives the full challenge payload from the coordinator (`doc`, `questions`, `constraints`, `companies`, etc.).
+  - Breaks the challenge into an array of questions.
+  - Spawns a solver sub-agent for each question and collects their answers.
+  - Constructs the final artifact from the array of answers and constraints.
+  - On failed submissions, maps `failedConstraintIndices` back to questions, re-runs solvers only for those questions, and rebuilds the artifact.
+
+- **Solver**:
+  - Takes a **single question** (plus the shared `doc` and `companies` list) as input.
+  - Returns a single company-name answer.
+  - Can run concurrently across questions.
+  - Has a **primary** model for normal operation and a **backup** model used only when fixing failed constraints.
+
+High-level control flow:
+
+```mermaid
+flowchart TD
+  minerRun[minerRun] --> getChallenge[getChallenge]
+  getChallenge --> orchestratorStart[orchestratorSolveChallenge]
+
+  orchestratorStart --> parseChallenge[parseChallengeAndQuestions]
+  parseChallenge --> fanoutQuestions[spawnSolversForEachQuestion]
+
+  subgraph solverPhasePrimary[SolverPhasePrimary]
+    fanoutQuestions --> solverPrimary[solverPrimaryModel]
+    solverPrimary --> collectAnswers[collectAllAnswers]
+  end
+
+  collectAnswers --> buildArtifact[buildArtifactFromAnswers]
+  buildArtifact --> submitAttempt[submitToCoordinator]
+  submitAttempt --> passCheck{passed?}
+
+  passCheck -- "yes" --> postReceipt[postReceiptOnChain]
+  passCheck -- "no" --> mapFailures[mapFailedConstraintsToQuestions]
+
+  mapFailures --> backupFanout[spawnBackupSolvers]
+
+  subgraph solverPhaseBackup[SolverPhaseBackup]
+    backupFanout --> solverBackup[solverBackupModel]
+    solverBackup --> updatedAnswers[updateAnswers]
+  end
+
+  updatedAnswers --> rebuildArtifact[rebuildArtifact]
+  rebuildArtifact --> submitAttempt
 ```
 
 ## Credit Tiers
