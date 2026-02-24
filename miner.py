@@ -13,8 +13,8 @@ import requests
 from typing import Optional, Dict, Any, Tuple
 from dotenv import load_dotenv
 
-# Import multi-agent orchestration (swarm solver)
-from agents import Orchestrator
+# Import multi-agent orchestration (swarm solver) and its model config
+from agents import Orchestrator, ORCHESTRATOR_MODEL, USE_EFFICIENT_MODE
 
 load_dotenv()
 
@@ -31,12 +31,9 @@ BANKR_API_KEY = os.environ.get("BANKR_API_KEY")
 VENICE_API_KEY = os.environ.get("VENICE_API_KEY")  # Venice AI API key
 USE_CLOUDSCRAPER = os.environ.get("USE_CLOUDSCRAPER", "true").lower() == "true"
 
-# Recommended models for BOTCOIN (reasoning-capable):
-#   - qwen3-235b-a22b-thinking-2507 (best reasoning, $0.45/$3.50)
-#   - kimi-k2-thinking (long context reasoning, $0.75/$3.20)
-#   - zai-org-glm-5 (frontier reasoning, $1.00/$3.20)
-#   - deepseek-v3.2 (good value, $0.40/$1.00 but verbose)
-VENICE_MODEL = os.environ.get("VENICE_MODEL", "qwen3-235b-a22b-thinking-2507")
+# For the legacy single-model solver, fall back to the orchestrator model
+# if VENICE_MODEL is not explicitly set.
+VENICE_MODEL = os.environ.get("VENICE_MODEL", "gemini-3-1-pro-preview") or ORCHESTRATOR_MODEL
 VENICE_BASE_URL = os.environ.get("VENICE_BASE_URL", "https://api.venice.ai/api/v1")
 
 # Self-correction settings
@@ -217,7 +214,8 @@ class BotcoinMiner:
 
     def ensure_balance(self) -> bool:
         """Skip balance check - coordinator verifies on-chain."""
-        self.log(f"Using model: {VENICE_MODEL}")
+        # Log primary orchestrator model for visibility
+        self.log(f"Using orchestrator model: {ORCHESTRATOR_MODEL}")
         return True
 
     # ==================== AUTH ====================
@@ -812,24 +810,12 @@ Remember: The artifact must be EXACTLY ONE LINE after "ARTIFACT:" - no other tex
                     "completion_tokens": 0,
                     "total_tokens": 0,
                 }
-                # All but the last attempt: swarm multi-agent with smart retry
-                use_efficient_fallback = (attempt == MAX_RETRIES - 1)
 
-                if not use_efficient_fallback:
-                    self.log(f"Solving with swarm multi-agent (attempt {attempt + 1}/{MAX_RETRIES})...")
-                    # Smart multi-agent retry: re-solves only questions linked to failed constraints
-                    artifact, previous_answers = self.orchestrator._solve_multi_agent_smart(
-                        doc,
-                        questions,
-                        constraints,
-                        companies,
-                        previous_artifact,
-                        failed_constraints,
-                        previous_answers,
-                    )
-                else:
-                    # Final attempt on this challenge: efficient 2-phase fallback
-                    self.log(f"Using efficient 2-phase fallback solver (attempt {attempt + 1}/{MAX_RETRIES})...")
+                # Choose solver mode:
+                # - If USE_EFFICIENT_MODE=true: always use efficient 2-phase solver
+                # - Otherwise: multi-agent smart retries, with efficient fallback on last attempt
+                if USE_EFFICIENT_MODE:
+                    self.log(f"Solving with efficient 2-phase solver (attempt {attempt + 1}/{MAX_RETRIES})...")
                     artifact = self.orchestrator._solve_efficient(
                         doc,
                         questions,
@@ -838,6 +824,33 @@ Remember: The artifact must be EXACTLY ONE LINE after "ARTIFACT:" - no other tex
                         previous_artifact,
                         failed_constraints,
                     )
+                else:
+                    # All but the last attempt: swarm multi-agent with smart retry
+                    use_efficient_fallback = (attempt == MAX_RETRIES - 1)
+
+                    if not use_efficient_fallback:
+                        self.log(f"Solving with swarm multi-agent (attempt {attempt + 1}/{MAX_RETRIES})...")
+                        # Smart multi-agent retry: re-solves only questions linked to failed constraints
+                        artifact, previous_answers = self.orchestrator._solve_multi_agent_smart(
+                            doc,
+                            questions,
+                            constraints,
+                            companies,
+                            previous_artifact,
+                            failed_constraints,
+                            previous_answers,
+                        )
+                    else:
+                        # Final attempt on this challenge: efficient 2-phase fallback
+                        self.log(f"Using efficient 2-phase fallback solver (attempt {attempt + 1}/{MAX_RETRIES})...")
+                        artifact = self.orchestrator._solve_efficient(
+                            doc,
+                            questions,
+                            constraints,
+                            companies,
+                            previous_artifact,
+                            failed_constraints,
+                        )
 
                 # Submit (reasoning and per-stream token accounting not used in swarm/efficient path)
                 # Use orchestrator's aggregated usage for telemetry

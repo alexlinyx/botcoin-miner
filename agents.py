@@ -24,8 +24,14 @@ VENICE_BASE_URL = os.environ.get("VENICE_BASE_URL", "https://api.venice.ai/api/v
 
 # Model assignments per role
 ORCHESTRATOR_MODEL = os.environ.get("ORCHESTRATOR_MODEL", "zai-org-glm-5")
-ANSWER_SOLVER_MODEL = os.environ.get("ANSWER_SOLVER_MODEL", ORCHESTRATOR_MODEL)
-ANSWER_CHECKER_MODEL = os.environ.get("ANSWER_CHECKER_MODEL", ORCHESTRATOR_MODEL)
+
+# Primary/backup solver models (preferred configuration)
+SOLVER_MODEL_PRIMARY = os.environ.get("SOLVER_MODEL_PRIMARY", ORCHESTRATOR_MODEL)
+SOLVER_MODEL_BACKUP = os.environ.get("SOLVER_MODEL_BACKUP", SOLVER_MODEL_PRIMARY)
+
+# Legacy per-role overrides (still supported for backward compatibility)
+ANSWER_SOLVER_MODEL = os.environ.get("ANSWER_SOLVER_MODEL", SOLVER_MODEL_PRIMARY)
+ANSWER_CHECKER_MODEL = os.environ.get("ANSWER_CHECKER_MODEL", SOLVER_MODEL_BACKUP)
 
 # Mode selection
 USE_EFFICIENT_MODE = os.environ.get("USE_EFFICIENT_MODE", "true").lower() == "true"
@@ -112,10 +118,17 @@ def call_llm(prompt: str, model: str, max_tokens: int = None, stream: bool = Fal
 
 
 class AgentA:
-    """Answerer - Uses ANSWER_SOLVER_MODEL"""
+    """Answerer - uses the configured solver model (primary/backup)."""
     
     @staticmethod
-    def answer_question(doc: str, question: str, companies: List[str]) -> Tuple[str, Dict]:
+    def answer_question(
+        doc: str,
+        question_num: int,
+        question: str,
+        companies: List[str],
+        model: str,
+        mode_label: str,
+    ) -> Tuple[str, Dict]:
         prompt = f"""Answer this question by finding the EXACT company name in the document.
 
 DOCUMENT:
@@ -135,8 +148,8 @@ INSTRUCTIONS:
 
 COMPANY NAME:"""
 
-        print(f"  → Agent A ({ANSWER_SOLVER_MODEL[:20]}...) answering...", end=' ', flush=True)
-        response, usage = call_llm(prompt, ANSWER_SOLVER_MODEL, max_tokens=500)
+        print(f"  → Agent A.{question_num} ({mode_label}: {model[:20]}...) answering...", end=' ', flush=True)
+        response, usage = call_llm(prompt, model, max_tokens=500)
         
         # Extract company name
         for company in companies:
@@ -150,10 +163,17 @@ COMPANY NAME:"""
 
 
 class AgentB:
-    """Verifier - Uses ANSWER_CHECKER_MODEL"""
+    """Verifier - uses the configured solver model (primary/backup) as checker."""
     
     @staticmethod
-    def verify_answer(doc: str, question: str, answer: str, companies: List[str]) -> Tuple[bool, Optional[str], Dict]:
+    def verify_answer(
+        doc: str,
+        question: str,
+        answer: str,
+        companies: List[str],
+        model: str,
+        mode_label: str,
+    ) -> Tuple[bool, Optional[str], Dict]:
         prompt = f"""Verify if this answer is correct.
 
 DOCUMENT:
@@ -173,8 +193,8 @@ INSTRUCTIONS:
 
 OUTPUT:"""
 
-        print(f"  → Agent B ({ANSWER_CHECKER_MODEL[:20]}...) verifying...", end=' ', flush=True)
-        response, usage = call_llm(prompt, ANSWER_CHECKER_MODEL, max_tokens=500)
+        print(f"  → Agent B ({mode_label}: {model[:20]}...) verifying...", end=' ', flush=True)
+        response, usage = call_llm(prompt, model, max_tokens=500)
         
         response_upper = response.upper().strip()
         
@@ -206,18 +226,42 @@ class Orchestrator:
         timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
         print(f"[{timestamp}] {msg}")
     
-    def solve_question(self, doc: str, question_num: int, question: str, companies: List[str]) -> str:
+    def solve_question(self, doc: str, question_num: int, question: str, companies: List[str], use_backup: bool = False) -> str:
         print(f"\n[Q{question_num}] {question[:60]}...")
+        
+        # Choose models for this question depending on primary vs backup pass
+        if use_backup:
+            solver_model = SOLVER_MODEL_BACKUP
+            checker_model = SOLVER_MODEL_BACKUP
+            mode_label = "backup"
+        else:
+            solver_model = SOLVER_MODEL_PRIMARY
+            checker_model = SOLVER_MODEL_PRIMARY
+            mode_label = "primary"
         
         for attempt in range(MAX_RETRIES):
             # Agent A answers
-            answer, usage_a = AgentA.answer_question(doc, question, companies)
+            answer, usage_a = AgentA.answer_question(
+                doc,
+                question_num,
+                question,
+                companies,
+                solver_model,
+                mode_label,
+            )
             self.total_usage['prompt_tokens'] += usage_a['prompt_tokens']
             self.total_usage['completion_tokens'] += usage_a['completion_tokens']
             self.total_usage['total_tokens'] += usage_a['total_tokens']
             
             # Agent B verifies
-            is_correct, correction, usage_b = AgentB.verify_answer(doc, question, answer, companies)
+            is_correct, correction, usage_b = AgentB.verify_answer(
+                doc,
+                question,
+                answer,
+                companies,
+                checker_model,
+                mode_label,
+            )
             self.total_usage['prompt_tokens'] += usage_b['prompt_tokens']
             self.total_usage['completion_tokens'] += usage_b['completion_tokens']
             self.total_usage['total_tokens'] += usage_b['total_tokens']
@@ -237,8 +281,8 @@ class Orchestrator:
         print(f"\n{'='*60}")
         print(f"MULTI-AGENT MODE ({CONCURRENT_SWARM} concurrent)")
         print(f"  Orchestrator: {ORCHESTRATOR_MODEL}")
-        print(f"  Answerer: {ANSWER_SOLVER_MODEL}")
-        print(f"  Checker: {ANSWER_CHECKER_MODEL}")
+        print(f"  Solver (primary): {SOLVER_MODEL_PRIMARY}")
+        print(f"  Solver (backup): {SOLVER_MODEL_BACKUP}")
         print(f"{'='*60}\n")
         
         if CONCURRENT_SWARM > 1:
@@ -246,7 +290,7 @@ class Orchestrator:
             
             with ThreadPoolExecutor(max_workers=min(CONCURRENT_SWARM, len(questions))) as executor:
                 futures = {
-                    executor.submit(self.solve_question, doc, i+1, q, companies): i+1
+                    executor.submit(self.solve_question, doc, i+1, q, companies, False): i+1
                     for i, q in enumerate(questions)
                 }
                 
@@ -265,7 +309,7 @@ class Orchestrator:
             for i, question in enumerate(questions):
                 q_num = i + 1
                 print(f"\n[Progress: {q_num}/{len(questions)}]")
-                answer = self.solve_question(doc, q_num, question, companies)
+                answer = self.solve_question(doc, q_num, question, companies, False)
                 self.answers[q_num] = answer
         
         print(f"\n✓ All questions solved. Tokens: {self.total_usage['total_tokens']}")
@@ -355,7 +399,8 @@ FAILED CONSTRAINTS: {failed_constraints}"""
             for q_num in questions_to_resolve:
                 if 1 <= q_num <= len(questions):
                     print(f"\n[Re-solving Q{q_num}] Previous: {self.answers.get(q_num, 'N/A')}")
-                    answer = self.solve_question(doc, q_num, questions[q_num-1], companies)
+                    # Use backup solver model on retry for these questions
+                    answer = self.solve_question(doc, q_num, questions[q_num-1], companies, use_backup=True)
                     self.answers[q_num] = answer
                     print(f"[Updated Q{q_num}] New: {answer}")
         else:
