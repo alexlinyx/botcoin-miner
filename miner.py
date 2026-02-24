@@ -14,8 +14,9 @@ from typing import Optional, Dict, Any
 # Configuration
 COORDINATOR_URL = os.environ.get("COORDINATOR_URL", "https://coordinator.agentmoney.net")
 BANKR_API_KEY = os.environ.get("BANKR_API_KEY")
-LLM_API_KEY = os.environ.get("LLM_API_KEY")  # OpenAI API key for solving
-LLM_MODEL = os.environ.get("LLM_MODEL", "gpt-4o")
+VENICE_API_KEY = os.environ.get("VENICE_API_KEY")  # Venice AI API key
+VENICE_MODEL = os.environ.get("VENICE_MODEL", "llama-3.3-70b")  # Options: llama-3.3-70b, zai-org-glm-4.7, venice-uncensored
+VENICE_BASE_URL = os.environ.get("VENICE_BASE_URL", "https://api.venice.ai/api/v1")
 
 # Botcoin token address
 BOTCOIN_ADDRESS = "0xA601877977340862Ca67f816eb079958E5bd0BA3"
@@ -225,25 +226,47 @@ INSTRUCTIONS:
 
 ARTIFACT:"""
 
-        self.log("Solving challenge with LLM...")
+        self.log("Solving challenge with Venice AI...")
         
-        # Call OpenAI API
+        # Call Venice AI API (OpenAI-compatible)
         resp = requests.post(
-            "https://api.openai.com/v1/chat/completions",
+            f"{VENICE_BASE_URL}/chat/completions",
             headers={
-                "Authorization": f"Bearer {LLM_API_KEY}",
+                "Authorization": f"Bearer {VENICE_API_KEY}",
                 "Content-Type": "application/json"
             },
             json={
-                "model": LLM_MODEL,
+                "model": VENICE_MODEL,
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.1
             },
-            timeout=120
+            timeout=180
         )
         
         result = resp.json()
-        artifact = result.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+        
+        # Check for API errors
+        if "error" in result:
+            error_msg = result.get("error", {})
+            if isinstance(error_msg, dict):
+                error_msg = error_msg.get("message", str(error_msg))
+            raise Exception(f"Venice AI error: {error_msg}")
+        
+        choices = result.get("choices", [])
+        if not choices:
+            raise Exception(f"No choices in Venice AI response: {result}")
+        
+        choice = choices[0]
+        
+        # Check for stop reasons
+        finish_reason = choice.get("finish_reason")
+        if finish_reason and finish_reason != "stop":
+            self.log(f"Warning: Venice AI finish_reason: {finish_reason}")
+        
+        artifact = choice.get("message", {}).get("content", "").strip()
+        
+        if not artifact:
+            raise Exception(f"Empty artifact from Venice AI: {result}")
         
         self.log(f"Artifact ({len(artifact.split())} words): {artifact[:100]}...")
         return artifact
@@ -328,8 +351,8 @@ ARTIFACT:"""
         # Validate config
         if not BANKR_API_KEY:
             raise Exception("BANKR_API_KEY not set")
-        if not LLM_API_KEY:
-            raise Exception("LLM_API_KEY not set")
+        if not VENICE_API_KEY:
+            raise Exception("VENICE_API_KEY not set")
         
         # Get miner address
         self.get_miner_address()
