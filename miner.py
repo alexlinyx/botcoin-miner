@@ -61,7 +61,11 @@ class BotcoinMiner:
             "fails": 0,
             "total_attempts": 0,
             "start_time": None,
-            "last_solve_time": None
+            "last_solve_time": None,
+            # LLM usage totals (all solvers)
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
         }
         self.stats_file = "mining_stats.json"
         self.total_tokens = 0  # Track total token usage
@@ -98,6 +102,10 @@ class BotcoinMiner:
             if os.path.exists(self.stats_file):
                 with open(self.stats_file, 'r') as f:
                     self.stats = json.load(f)
+            # Ensure new keys exist even for older stats files
+            self.stats.setdefault("prompt_tokens", 0)
+            self.stats.setdefault("completion_tokens", 0)
+            self.stats.setdefault("total_tokens", 0)
         except:
             pass
 
@@ -636,6 +644,9 @@ Remember: The artifact must be EXACTLY ONE LINE after "ARTIFACT:" - no other tex
         print(f"Runtime: {hours:.2f} hours")
         print(f"Total Solves: {self.stats['solves']}")
         print(f"Total Failures: {self.stats['fails']}")
+        print(f"Total LLM Tokens: {self.stats.get('total_tokens', 0)} "
+              f"(prompt={self.stats.get('prompt_tokens', 0)}, "
+              f"completion={self.stats.get('completion_tokens', 0)})")
 
         if self.stats['solves'] + self.stats['fails'] > 0:
             success_rate = self.stats['solves'] / (self.stats['solves'] + self.stats['fails']) * 100
@@ -644,6 +655,10 @@ Remember: The artifact must be EXACTLY ONE LINE after "ARTIFACT:" - no other tex
         if hours > 0 and self.stats['solves'] > 0:
             solves_per_hour = self.stats['solves'] / hours
             print(f"Solves/Hour: {solves_per_hour:.2f}")
+
+            # Rough tokens-per-solve metric
+            avg_tokens_per_solve = self.stats.get("total_tokens", 0) / max(self.stats['solves'], 1)
+            print(f"Avg LLM Tokens per Solve: {avg_tokens_per_solve:.0f}")
 
         print(f"Last Solve: {self.stats.get('last_solve_time', 'N/A')}")
         print("=" * 50 + "\n")
@@ -668,6 +683,12 @@ Remember: The artifact must be EXACTLY ONE LINE after "ARTIFACT:" - no other tex
 
         for attempt in range(MAX_RETRIES):
             try:
+                # Reset orchestrator usage tracking for this attempt
+                self.orchestrator.total_usage = {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                }
                 # All but the last attempt: swarm multi-agent with smart retry
                 use_efficient_fallback = (attempt == MAX_RETRIES - 1)
 
@@ -695,11 +716,31 @@ Remember: The artifact must be EXACTLY ONE LINE after "ARTIFACT:" - no other tex
                         failed_constraints,
                     )
 
-                # Submit (we don't have fine-grained token/reasoning here)
-                reasoning_chunks = []
-                prompt_tokens = 0
-                completion_tokens = 0
-                result = self.submit(challenge, artifact, reasoning_chunks, prompt_tokens, completion_tokens)
+                # Submit (reasoning and per-stream token accounting not used in swarm/efficient path)
+                # Use orchestrator's aggregated usage for telemetry
+                usage = self.orchestrator.total_usage
+                attempt_prompt_tokens = usage.get("prompt_tokens", 0)
+                attempt_completion_tokens = usage.get("completion_tokens", 0)
+                attempt_total_tokens = usage.get("total_tokens", 0)
+
+                self.log(
+                    f"LLM tokens this attempt: {attempt_total_tokens} "
+                    f"(prompt={attempt_prompt_tokens}, completion={attempt_completion_tokens})"
+                )
+
+                # Accumulate into global stats
+                self.stats["prompt_tokens"] = self.stats.get("prompt_tokens", 0) + attempt_prompt_tokens
+                self.stats["completion_tokens"] = self.stats.get("completion_tokens", 0) + attempt_completion_tokens
+                self.stats["total_tokens"] = self.stats.get("total_tokens", 0) + attempt_total_tokens
+                self._save_stats()
+
+                result = self.submit(
+                    challenge,
+                    artifact,
+                    reasoning_chunks=[],
+                    prompt_tokens=attempt_prompt_tokens,
+                    completion_tokens=attempt_completion_tokens,
+                )
 
                 if result.get("pass"):
                     # Post on-chain
