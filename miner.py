@@ -191,6 +191,11 @@ class BotcoinMiner:
             f"{COORDINATOR_URL}/v1/auth/nonce",
             json={"miner": self.miner_address}
         )
+        
+        if resp.status_code != 200:
+            self.log(f"Nonce error: {resp.text[:500]}")
+            raise Exception(f"Nonce request failed: {resp.status_code}")
+        
         nonce_data = resp.json()
         message = nonce_data.get("message", "")
         
@@ -209,13 +214,26 @@ class BotcoinMiner:
                 "signature": signature
             }
         )
+        
+        if resp.status_code != 200:
+            self.log(f"Verify error: {resp.text[:500]}")
+            raise Exception(f"Verify request failed: {resp.status_code}")
+        
         verify_data = resp.json()
         self.token = verify_data.get("token")
         
         if not self.token:
             raise Exception(f"Failed to verify: {verify_data}")
         
+        # Log full auth details
+        self.log(f"Auth response: {json.dumps(verify_data, indent=2)}")
         self.log(f"Authenticated. Credits per solve: {verify_data.get('creditsPerSolve', 1)}")
+        
+        # Check balance tier
+        balance_tier = verify_data.get("balanceTier", "unknown")
+        botcoin_balance = verify_data.get("botcoinBalance", "unknown")
+        self.log(f"Balance tier: {balance_tier}, BOTCOIN: {botcoin_balance}")
+        
         return self.token
     
     # ==================== CHALLENGE ====================
@@ -230,13 +248,31 @@ class BotcoinMiner:
             params={"miner": self.miner_address, "nonce": nonce},
             headers={"Authorization": f"Bearer {self.token}"}
         )
-        challenge = resp.json()
+        
+        # Debug: log raw response
+        self.log(f"Challenge response status: {resp.status_code}")
+        
+        # Handle non-200 responses
+        if resp.status_code != 200:
+            self.log(f"Challenge error response: {resp.text[:500]}")
+            raise Exception(f"Challenge request failed with status {resp.status_code}: {resp.text[:200]}")
+        
+        # Handle empty response
+        if not resp.text.strip():
+            raise Exception("Empty response from challenge endpoint")
+        
+        try:
+            challenge = resp.json()
+        except json.JSONDecodeError as e:
+            self.log(f"Challenge response was not JSON: {resp.text[:500]}")
+            raise Exception(f"Failed to parse challenge response as JSON: {e}")
         
         if "error" in challenge:
             raise Exception(f"Challenge error: {challenge}")
         
         challenge["_nonce"] = nonce
         self.log(f"Got challenge {challenge.get('challengeId', '')[:16]}... epoch {challenge.get('epochId')}")
+        self.log(f"Credits per solve: {challenge.get('creditsPerSolve', 'N/A')}")
         return challenge
     
     # ==================== SOLVE ====================
@@ -403,7 +439,24 @@ ARTIFACT:"""
                 "nonce": challenge.get("_nonce")
             }
         )
-        result = resp.json()
+        
+        # Debug: log response status
+        self.log(f"Submit response status: {resp.status_code}")
+        
+        # Handle non-200 responses
+        if resp.status_code != 200:
+            self.log(f"Submit error response: {resp.text[:500]}")
+            raise Exception(f"Submit failed with status {resp.status_code}: {resp.text[:200]}")
+        
+        # Handle empty response
+        if not resp.text.strip():
+            raise Exception("Empty response from submit endpoint")
+        
+        try:
+            result = resp.json()
+        except json.JSONDecodeError as e:
+            self.log(f"Submit response was not JSON: {resp.text[:500]}")
+            raise Exception(f"Failed to parse submit response as JSON: {e}")
         
         if result.get("pass"):
             self.log(f"✓ PASSED! Credits earned.")
