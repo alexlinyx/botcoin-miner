@@ -424,6 +424,13 @@ ARTIFACT:"""
         completion_tokens = 0
         chunk_count = 0
         
+        # Open streaming log file for this solve attempt
+        streaming_log = open("streaming.log", "a")
+        streaming_log.write(f"\n{'='*60}\n")
+        streaming_log.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] STREAMING RESPONSE\n")
+        streaming_log.write(f"Model: {VENICE_MODEL}\n")
+        streaming_log.write(f"{'='*60}\n")
+        
         for line in resp.iter_lines():
             if not line:
                 continue
@@ -443,6 +450,7 @@ ARTIFACT:"""
                     artifact_chunks.append(content)
                     # Real-time output: print content as it arrives
                     print(content, end='', flush=True)
+                    streaming_log.write(content)
                     chunk_count += 1
                 
                 reasoning = delta.get('reasoning_content')
@@ -450,6 +458,7 @@ ARTIFACT:"""
                     reasoning_chunks.append(reasoning)
                     # Print reasoning in dim/gray if terminal supports it
                     print(f"\033[90m{reasoning}\033[0m", end='', flush=True)
+                    streaming_log.write(f"[REASONING] {reasoning}")
                     chunk_count += 1
                 
                 # Track finish reason
@@ -465,11 +474,16 @@ ARTIFACT:"""
             except json.JSONDecodeError:
                 continue
         
+        # Close streaming log
+        streaming_log.write(f"\n\n[FINISH_REASON: {finish_reason}]\n")
+        streaming_log.write(f"[CHUNKS: {chunk_count}]\n")
+        streaming_log.close()
+        
         # Newline after streaming output
         if chunk_count > 0:
             print()  # Newline after streaming
         
-        self.log(f"Received {chunk_count} chunks")
+        self.log(f"Received {chunk_count} chunks (saved to streaming.log)")
         
         # Combine chunks
         artifact = ''.join(artifact_chunks).strip()
