@@ -37,9 +37,9 @@ VENICE_MODEL = os.environ.get("VENICE_MODEL", "qwen3-235b-a22b-thinking-2507")
 VENICE_BASE_URL = os.environ.get("VENICE_BASE_URL", "https://api.venice.ai/api/v1")
 
 # Self-correction settings
-MAX_RETRIES = int(os.environ.get("MAX_RETRIES", "3"))  # Retries per challenge before getting new one
-MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "16000"))  # Token limit for LLM response
-LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "420"))  # Timeout in seconds for LLM API (default 7 min)
+MAX_RETRIES = int(os.environ.get("MAX_RETRIES", "5"))  # Retries per challenge before getting new one
+MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "0"))  # 0 = unlimited
+LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "0"))  # 0 = no timeout
 
 # Botcoin token address
 BOTCOIN_ADDRESS = "0xA601877977340862Ca67f816eb079958E5bd0BA3"
@@ -435,9 +435,9 @@ ARTIFACT:"""
                 "model": VENICE_MODEL,
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.0,  # Deterministic output
-                "max_tokens": MAX_TOKENS  # Configurable via env
+                "max_tokens": MAX_TOKENS if MAX_TOKENS > 0 else None,  # None = unlimited
             },
-            timeout=LLM_TIMEOUT  # Configurable via env
+            timeout=LLM_TIMEOUT if LLM_TIMEOUT > 0 else None,  # None = no timeout
         )
         
         result = resp.json()
