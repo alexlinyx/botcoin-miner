@@ -424,7 +424,7 @@ ARTIFACT:"""
 
         self.log(f"Solving challenge with Venice AI...{'(RETRY)' if previous_artifact else ''}")
         
-        # Call Venice AI API (OpenAI-compatible)
+        # Call Venice AI API with streaming to avoid server timeout
         resp = requests.post(
             f"{VENICE_BASE_URL}/chat/completions",
             headers={
@@ -435,52 +435,85 @@ ARTIFACT:"""
                 "model": VENICE_MODEL,
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.0,  # Deterministic output
-                "max_tokens": MAX_TOKENS if MAX_TOKENS > 0 else 64000,  # Venice requires number, 64K is very high
+                "max_tokens": MAX_TOKENS if MAX_TOKENS > 0 else 64000,  # Venice requires number
+                "stream": True,  # Enable streaming to avoid server timeout
             },
-            timeout=LLM_TIMEOUT if LLM_TIMEOUT > 0 else None,  # None = no timeout
+            stream=True,  # Requests library streaming
+            timeout=None,  # No client timeout
         )
         
-        result = resp.json()
+        # Check for errors in stream
+        if resp.status_code != 200:
+            error_text = resp.text
+            try:
+                error_json = resp.json()
+                error_msg = error_json.get("error", error_json.get("message", error_text))
+            except:
+                error_msg = error_text
+            raise Exception(f"Venice AI error ({resp.status_code}): {error_msg}")
         
-        # Log token usage for cost tracking
-        usage = result.get("usage", {})
-        if usage:
-            prompt_tokens = usage.get("prompt_tokens", 0)
-            completion_tokens = usage.get("completion_tokens", 0)
-            total_tokens = usage.get("total_tokens", 0)
-            self.log(f"Token usage: {prompt_tokens} prompt + {completion_tokens} completion = {total_tokens} total")
+        # Collect streaming response
+        self.log("Streaming response from Venice AI...")
+        artifact_chunks = []
+        reasoning_chunks = []
+        finish_reason = None
+        prompt_tokens = 0
+        completion_tokens = 0
         
-        # Check for API errors
-        if "error" in result:
-            error_msg = result.get("error", {})
-            if isinstance(error_msg, dict):
-                error_msg = error_msg.get("message", str(error_msg))
-            raise Exception(f"Venice AI error: {error_msg}")
+        for line in resp.iter_lines():
+            if not line:
+                continue
+            line = line.decode('utf-8')
+            if not line.startswith('data: '):
+                continue
+            data = line[6:]  # Remove 'data: ' prefix
+            if data == '[DONE]':
+                break
+            try:
+                chunk = json.loads(data)
+                delta = chunk.get('choices', [{}])[0].get('delta', {})
+                
+                # Collect content
+                if 'content' in delta:
+                    artifact_chunks.append(delta['content'])
+                if 'reasoning_content' in delta:
+                    reasoning_chunks.append(delta['reasoning_content'])
+                
+                # Track finish reason
+                if chunk.get('choices', [{}])[0].get('finish_reason'):
+                    finish_reason = chunk['choices'][0]['finish_reason']
+                
+                # Track usage if provided
+                usage = chunk.get('usage', {})
+                if usage:
+                    prompt_tokens = usage.get('prompt_tokens', prompt_tokens)
+                    completion_tokens = usage.get('completion_tokens', completion_tokens)
+                    
+            except json.JSONDecodeError:
+                continue
         
-        choices = result.get("choices", [])
-        if not choices:
-            raise Exception(f"No choices in Venice AI response: {result}")
+        # Combine chunks
+        artifact = ''.join(artifact_chunks).strip()
+        reasoning = ''.join(reasoning_chunks).strip()
         
-        choice = choices[0]
+        # Use reasoning_content if content is empty (DeepSeek reasoning mode)
+        if not artifact and reasoning:
+            self.log("Found output in reasoning_content (DeepSeek reasoning mode)")
+            artifact = reasoning
         
-        # Check for stop reasons
-        finish_reason = choice.get("finish_reason")
+        # Log token usage
+        if prompt_tokens or completion_tokens:
+            self.log(f"Token usage: {prompt_tokens} prompt + {completion_tokens} completion = {prompt_tokens + completion_tokens} total")
+        
+        # Check for issues
         if finish_reason and finish_reason not in ("stop", "length"):
             self.log(f"Warning: Venice AI finish_reason: {finish_reason}")
         
         if finish_reason == "length":
-            self.log("Warning: Hit max_tokens limit, consider increasing")
+            self.log("Warning: Hit max_tokens limit")
         
-        # Get content - handle both regular content and reasoning_content
-        message = choice.get("message", {})
-        artifact = message.get("content", "").strip()
-        
-        # DeepSeek reasoning models put output in reasoning_content
         if not artifact:
-            reasoning = message.get("reasoning_content", "").strip()
-            if reasoning:
-                self.log("Found output in reasoning_content (DeepSeek reasoning mode)")
-                artifact = reasoning
+            raise Exception(f"Empty artifact from Venice AI")
         
         if not artifact:
             raise Exception(f"Empty artifact from Venice AI: {result}")
