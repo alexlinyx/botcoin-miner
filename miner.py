@@ -39,6 +39,7 @@ VENICE_BASE_URL = os.environ.get("VENICE_BASE_URL", "https://api.venice.ai/api/v
 # Self-correction settings
 MAX_RETRIES = int(os.environ.get("MAX_RETRIES", "3"))  # Retries per challenge before getting new one
 MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "16000"))  # Token limit for LLM response
+LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "420"))  # Timeout in seconds for LLM API (default 7 min)
 
 # Botcoin token address
 BOTCOIN_ADDRESS = "0xA601877977340862Ca67f816eb079958E5bd0BA3"
@@ -287,14 +288,7 @@ class BotcoinMiner:
         if not self.token:
             raise Exception(f"Failed to verify: {verify_data}")
         
-        # Log full auth details
-        self.log(f"Auth response: {json.dumps(verify_data, indent=2)}")
-        self.log(f"Authenticated. Credits per solve: {verify_data.get('creditsPerSolve', 1)}")
-        
-        # Check balance tier
-        balance_tier = verify_data.get("balanceTier", "unknown")
-        botcoin_balance = verify_data.get("botcoinBalance", "unknown")
-        self.log(f"Balance tier: {balance_tier}, BOTCOIN: {botcoin_balance}")
+        self.log(f"Authenticated successfully")
         
         return self.token
     
@@ -333,8 +327,9 @@ class BotcoinMiner:
             raise Exception(f"Challenge error: {challenge}")
         
         challenge["_nonce"] = nonce
-        self.log(f"Got challenge {challenge.get('challengeId', '')[:16]}... epoch {challenge.get('epochId')}")
-        self.log(f"Credits per solve: {challenge.get('creditsPerSolve', 'N/A')}")
+        epoch_id = challenge.get('epochId')
+        credits = challenge.get('creditsPerSolve', 1)
+        self.log(f"Got challenge epoch {epoch_id} | Credits per solve: {credits} ⛏️")
         return challenge
     
     # ==================== SOLVE ====================
@@ -442,7 +437,7 @@ ARTIFACT:"""
                 "temperature": 0.0,  # Deterministic output
                 "max_tokens": MAX_TOKENS  # Configurable via env
             },
-            timeout=300  # 5 minutes for reasoning
+            timeout=LLM_TIMEOUT  # Configurable via env
         )
         
         result = resp.json()
