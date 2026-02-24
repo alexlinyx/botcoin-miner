@@ -83,6 +83,12 @@ OUTPUT FORMAT (JSON):
   ... through Q10
 }}
 
+RESPONSE RULES:
+1. Return a SINGLE valid JSON object exactly in the format above.
+2. Keys MUST be Q1 through Q10.
+3. Values MUST be plain company names (strings) from the valid list.
+4. Do NOT include explanations, markdown, or any extra text.
+
 JSON OUTPUT ONLY:"""
 
     print("→ Calling LLM to answer all questions...")
@@ -121,15 +127,15 @@ CONSTRAINTS:
 {json.dumps(constraints, indent=2)}
 
 INSTRUCTIONS:
-1. Verify each answer against the constraints
-2. Extract required values (cities, names, numbers)
-3. Calculate any arithmetic needed
-4. Construct a single-line artifact satisfying ALL constraints
-5. Verify word count EXACTLY
+1. Verify each answer against the constraints.
+2. Extract required values (cities, names, numbers).
+3. Calculate any arithmetic needed.
+4. Construct a single-line artifact satisfying ALL constraints.
+5. Verify word count EXACTLY.
+6. Your FINAL RESPONSE MUST BE EXACTLY ONE LINE: the artifact string and nothing else.
+7. Do NOT include labels, prefixes, explanations, JSON, or markdown.
 
-OUTPUT ONLY THE ARTIFACT - one line, no explanation.
-
-ARTIFACT:"""
+OUTPUT ONLY THE SINGLE-LINE ARTIFACT:"""
 
     print("→ Calling LLM to construct artifact...")
     response2, usage2 = call_llm(phase2_prompt, max_tokens=4000)
