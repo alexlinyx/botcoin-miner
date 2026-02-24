@@ -125,8 +125,9 @@ QUESTION:
 
 INSTRUCTIONS:
 1. Search the document carefully
-2. Find the EXACT company name
-3. Output ONLY the company name
+2. Find the EXACT company name from the valid list
+3. Output EXACTLY ONE LINE with ONLY the company name
+4. Do NOT include quotes, explanations, or any other text
 
 COMPANY NAME:"""
 
@@ -162,8 +163,9 @@ PROPOSED ANSWER:
 
 INSTRUCTIONS:
 1. Verify against the document
-2. If CORRECT, output: CORRECT
-3. If WRONG, output: WRONG: CorrectAnswer
+2. If CORRECT, output EXACTLY: CORRECT
+3. If WRONG, output EXACTLY: WRONG: CorrectAnswer (single line)
+4. Do NOT add any extra explanation, text, or formatting
 
 OUTPUT:"""
 
@@ -277,7 +279,13 @@ ANSWERS:
 CONSTRAINTS:
 {json.dumps(constraints, indent=2)}
 
-OUTPUT ONLY THE ARTIFACT:"""
+INSTRUCTIONS:
+1. Use the answers and constraints to build the final artifact.
+2. The artifact MUST satisfy ALL constraints exactly (including word counts, acrostics, and character rules).
+3. Your FINAL RESPONSE MUST BE EXACTLY ONE LINE: the artifact string and nothing else.
+4. Do NOT include labels, prefixes, or explanations. No JSON, no markdown, no extra lines.
+
+OUTPUT ONLY THE SINGLE-LINE ARTIFACT:"""
 
         if previous_artifact and failed_constraints:
             prompt += f"""
@@ -420,6 +428,12 @@ QUESTIONS:
 OUTPUT JSON:
 {{"Q1": "Company", "Q2": "Company", ...}}
 
+RESPONSE RULES:
+1. Return a SINGLE valid JSON object exactly in the format above.
+2. Keys MUST be Q1 through Q10.
+3. Values MUST be plain company names (strings).
+4. Do NOT include any explanation, markdown, or extra text before or after the JSON.
+
 JSON ONLY:"""
         
         response1, usage1 = call_llm(phase1_prompt, ORCHESTRATOR_MODEL, max_tokens=6000)
@@ -446,7 +460,13 @@ ANSWERS:
 CONSTRAINTS:
 {json.dumps(constraints, indent=2)}
 
-ARTIFACT ONLY:"""
+INSTRUCTIONS:
+1. Use the answers and constraints to construct the final artifact.
+2. The artifact MUST satisfy ALL constraints exactly (including word counts, acrostics, and character rules).
+3. Your FINAL RESPONSE MUST BE EXACTLY ONE LINE: the artifact string and nothing else.
+4. Do NOT include labels, prefixes, explanations, JSON, or markdown.
+
+OUTPUT ONLY THE SINGLE-LINE ARTIFACT:"""
         
         if previous_artifact and failed_constraints:
             phase2_prompt += f"\n\nFIX: Previous {previous_artifact} failed on {failed_constraints}"
