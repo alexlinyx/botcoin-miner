@@ -660,7 +660,7 @@ Remember: The artifact must be EXACTLY ONE LINE after "ARTIFACT:" - no other tex
         for attempt in range(MAX_RETRIES):
             try:
                 # Solve (with feedback if retry)
-                artifact = self.solve(challenge, previous_artifact, failed_constraints)
+                artifact, reasoning_chunks, prompt_tokens, completion_tokens = self.solve(challenge, previous_artifact, failed_constraints)
 
                 # Submit
                 result = self.submit(challenge, artifact, reasoning_chunks, prompt_tokens, completion_tokens)
