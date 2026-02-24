@@ -11,6 +11,10 @@ import hashlib
 import requests
 from typing import Optional, Dict, Any
 
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv()
+
 # Configuration
 COORDINATOR_URL = os.environ.get("COORDINATOR_URL", "https://coordinator.agentmoney.net")
 BANKR_API_KEY = os.environ.get("BANKR_API_KEY")
