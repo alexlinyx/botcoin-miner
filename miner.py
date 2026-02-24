@@ -203,32 +203,20 @@ class BotcoinMiner:
         self.log(f"BOTCOIN: {botcoin_response}")
         
         # Parse BOTCOIN amount from response
-        # Expected format: "BOTCOIN (0xa601...) on base: 106567319 BOTCOIN ($2,687)"
+        # Expected format: "botcoin (0xa601...) on base: 106,567,319.07 ($2,539.73 usd)"
         import re
         
-        # Try multiple parsing patterns
         botcoin_balance = 0
         
-        # Pattern 1: "on base: 106567319 BOTCOIN"
-        match = re.search(r'on base:\s*([\d,]+)\s*BOTCOIN', botcoin_response, re.IGNORECASE)
+        # Pattern 1: "on base: NUMBER" (stop at parenthesis or space)
+        match = re.search(r'on base:\s*([\d,]+\.?\d*)', botcoin_response, re.IGNORECASE)
         if match:
             botcoin_balance = float(match.group(1).replace(',', ''))
         else:
-            # Pattern 2: "106567319 BOTCOIN" (look for number before BOTCOIN)
-            match = re.search(r'([\d,]+)\s*BOTCOIN', botcoin_response, re.IGNORECASE)
+            # Pattern 2: Look for number with commas before "($"
+            match = re.search(r'([\d,]+\.?\d*)\s*\(', botcoin_response)
             if match:
                 botcoin_balance = float(match.group(1).replace(',', ''))
-            else:
-                # Pattern 3: Just find large numbers (> 1M)
-                numbers = re.findall(r'[\d,]+', botcoin_response)
-                for num_str in numbers:
-                    try:
-                        num = float(num_str.replace(',', ''))
-                        if num > 1_000_000:  # Likely BOTCOIN balance
-                            botcoin_balance = num
-                            break
-                    except:
-                        continue
         
         self.log(f"Parsed BOTCOIN balance: {botcoin_balance:,.0f}")
         return {"botcoin": botcoin_balance, "eth_response": eth_response}
