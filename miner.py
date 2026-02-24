@@ -510,7 +510,7 @@ Remember: The artifact must be EXACTLY ONE LINE after "ARTIFACT:" - no other tex
                     break
 
         self.log(f"Artifact ({len(artifact.split())} words): {artifact[:100]}...")
-        return artifact
+        return artifact, [], 0, 0
 
     # ==================== SUBMIT ====================
 
