@@ -37,8 +37,45 @@ class BotcoinMiner:
         self.token: Optional[str] = None
         self.session = requests.Session()
         
+        # Stats tracking
+        self.stats = {
+            "solves": 0,
+            "fails": 0,
+            "total_attempts": 0,
+            "start_time": None,
+            "last_solve_time": None
+        }
+        self.stats_file = "mining_stats.json"
+        self._load_stats()
+        
+    def _load_stats(self):
+        """Load stats from file if exists."""
+        try:
+            if os.path.exists(self.stats_file):
+                with open(self.stats_file, 'r') as f:
+                    self.stats = json.load(f)
+        except:
+            pass
+    
+    def _save_stats(self):
+        """Save stats to file."""
+        try:
+            with open(self.stats_file, 'w') as f:
+                json.dump(self.stats, f, indent=2)
+        except:
+            pass
+        
     def log(self, msg: str):
-        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
+        timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
+        log_line = f"[{timestamp}] {msg}"
+        print(log_line)
+        
+        # Also write to log file
+        try:
+            with open("miner.log", 'a') as f:
+                f.write(log_line + "\n")
+        except:
+            pass
     
     # ==================== BANKR API ====================
     
@@ -396,6 +433,29 @@ ARTIFACT:"""
     
     # ==================== MAIN LOOP ====================
     
+    def show_stats(self):
+        """Display mining statistics."""
+        elapsed = time.time() - self.stats.get("start_time", time.time())
+        hours = elapsed / 3600
+        
+        print("\n" + "=" * 50)
+        print("📊 MINING STATISTICS")
+        print("=" * 50)
+        print(f"Runtime: {hours:.2f} hours")
+        print(f"Total Solves: {self.stats['solves']}")
+        print(f"Total Failures: {self.stats['fails']}")
+        
+        if self.stats['solves'] + self.stats['fails'] > 0:
+            success_rate = self.stats['solves'] / (self.stats['solves'] + self.stats['fails']) * 100
+            print(f"Success Rate: {success_rate:.1f}%")
+        
+        if hours > 0 and self.stats['solves'] > 0:
+            solves_per_hour = self.stats['solves'] / hours
+            print(f"Solves/Hour: {solves_per_hour:.2f}")
+        
+        print(f"Last Solve: {self.stats.get('last_solve_time', 'N/A')}")
+        print("=" * 50 + "\n")
+    
     def mine_one(self) -> bool:
         """Run one mining cycle with self-correction. Returns True if successful."""
         previous_artifact = None
@@ -415,8 +475,13 @@ ARTIFACT:"""
                 if result.get("pass"):
                     # Post on-chain
                     self.post_receipt(result)
+                    self.stats["solves"] += 1
+                    self.stats["last_solve_time"] = time.strftime('%Y-%m-%d %H:%M:%S')
+                    self._save_stats()
                     return True
                 else:
+                    self.stats["fails"] += 1
+                    self._save_stats()
                     # Extract failed constraints for next retry
                     failed_constraints = result.get("failedConstraintIndices", [])
                     previous_artifact = artifact
@@ -465,18 +530,20 @@ ARTIFACT:"""
         
         # Mining loop
         self.log("Starting mining loop...")
-        solve_count = 0
-        fail_count = 0
+        self.stats["start_time"] = time.time()
+        self._save_stats()
+        
+        last_stats_time = time.time()
         
         while True:
             try:
+                self.stats["total_attempts"] += 1
                 success = self.mine_one()
-                if success:
-                    solve_count += 1
-                else:
-                    fail_count += 1
                 
-                self.log(f"Stats: {solve_count} solved, {fail_count} failed")
+                # Show stats every 10 minutes
+                if time.time() - last_stats_time > 600:
+                    self.show_stats()
+                    last_stats_time = time.time()
                 
                 # Re-auth if needed (token expires)
                 # Tokens last ~10 minutes, re-auth every 8 minutes
@@ -484,6 +551,7 @@ ARTIFACT:"""
                 
             except KeyboardInterrupt:
                 self.log("Stopping miner...")
+                self.show_stats()
                 break
             except Exception as e:
                 self.log(f"Error in loop: {e}")
