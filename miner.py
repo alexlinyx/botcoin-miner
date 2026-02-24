@@ -786,8 +786,8 @@ Remember: The artifact must be EXACTLY ONE LINE after "ARTIFACT:" - no other tex
 
     def mine_one(self) -> bool:
         """
-        Run one mining cycle using swarm (multi-agent) solver with an efficient
-        2-phase fallback. Returns True if successful.
+        Run one mining cycle using the orchestrator + solver swarm.
+        Returns True if successful.
         """
         previous_artifact = None
         failed_constraints = None
@@ -811,46 +811,19 @@ Remember: The artifact must be EXACTLY ONE LINE after "ARTIFACT:" - no other tex
                     "total_tokens": 0,
                 }
 
-                # Choose solver mode:
-                # - If USE_EFFICIENT_MODE=true: always use efficient 2-phase solver
-                # - Otherwise: multi-agent smart retries, with efficient fallback on last attempt
-                if USE_EFFICIENT_MODE:
-                    self.log(f"Solving with efficient 2-phase solver (attempt {attempt + 1}/{MAX_RETRIES})...")
-                    artifact = self.orchestrator._solve_efficient(
-                        doc,
-                        questions,
-                        constraints,
-                        companies,
-                        previous_artifact,
-                        failed_constraints,
-                    )
-                else:
-                    # All but the last attempt: swarm multi-agent with smart retry
-                    use_efficient_fallback = (attempt == MAX_RETRIES - 1)
-
-                    if not use_efficient_fallback:
-                        self.log(f"Solving with swarm multi-agent (attempt {attempt + 1}/{MAX_RETRIES})...")
-                        # Smart multi-agent retry: re-solves only questions linked to failed constraints
-                        artifact, previous_answers = self.orchestrator._solve_multi_agent_smart(
-                            doc,
-                            questions,
-                            constraints,
-                            companies,
-                            previous_artifact,
-                            failed_constraints,
-                            previous_answers,
-                        )
-                    else:
-                        # Final attempt on this challenge: efficient 2-phase fallback
-                        self.log(f"Using efficient 2-phase fallback solver (attempt {attempt + 1}/{MAX_RETRIES})...")
-                        artifact = self.orchestrator._solve_efficient(
-                            doc,
-                            questions,
-                            constraints,
-                            companies,
-                            previous_artifact,
-                            failed_constraints,
-                        )
+                # Always use orchestrator + solver swarm with smart retries.
+                # On first attempt, this solves all questions with the primary solver model.
+                # On retries, it re-solves only questions linked to failed constraints using the backup solver model.
+                self.log(f"Solving with orchestrator + solver swarm (attempt {attempt + 1}/{MAX_RETRIES})...")
+                artifact, previous_answers = self.orchestrator._solve_multi_agent_smart(
+                    doc,
+                    questions,
+                    constraints,
+                    companies,
+                    previous_artifact,
+                    failed_constraints,
+                    previous_answers,
+                )
 
                 # Submit (reasoning and per-stream token accounting not used in swarm/efficient path)
                 # Use orchestrator's aggregated usage for telemetry

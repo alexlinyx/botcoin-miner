@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
-BOTCOIN Multi-Agent System with Configurable Models
+BOTCOIN Orchestrator + Solver System
 
 Environment Variables:
 - ORCHESTRATOR_MODEL: Main coordinator (default: zai-org-glm-5)
-- ANSWER_SOLVER_MODEL: Question answering (default: same as orchestrator)
-- ANSWER_CHECKER_MODEL: Answer verification (default: same as orchestrator)
-- USE_EFFICIENT_MODE: true = 2-phase, false = multi-agent (default: true)
+- SOLVER_MODEL_PRIMARY: Primary solver for per-question answering (default: ORCHESTRATOR_MODEL)
+- SOLVER_MODEL_BACKUP: Backup solver used only when fixing failed constraints (default: SOLVER_MODEL_PRIMARY)
 """
 
 import os
@@ -25,24 +24,13 @@ VENICE_BASE_URL = os.environ.get("VENICE_BASE_URL", "https://api.venice.ai/api/v
 # Model assignments per role
 ORCHESTRATOR_MODEL = os.environ.get("ORCHESTRATOR_MODEL", "zai-org-glm-5")
 
-# Primary/backup solver models (preferred configuration)
+# Primary/backup solver models
 SOLVER_MODEL_PRIMARY = os.environ.get("SOLVER_MODEL_PRIMARY", ORCHESTRATOR_MODEL)
 SOLVER_MODEL_BACKUP = os.environ.get("SOLVER_MODEL_BACKUP", SOLVER_MODEL_PRIMARY)
-
-# Legacy per-role overrides (still supported for backward compatibility)
-ANSWER_SOLVER_MODEL = os.environ.get("ANSWER_SOLVER_MODEL", SOLVER_MODEL_PRIMARY)
-ANSWER_CHECKER_MODEL = os.environ.get("ANSWER_CHECKER_MODEL", SOLVER_MODEL_BACKUP)
-
-# Mode selection
-USE_EFFICIENT_MODE = os.environ.get("USE_EFFICIENT_MODE", "true").lower() == "true"
 
 MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "32000"))
 MAX_RETRIES = int(os.environ.get("MAX_RETRIES", "3"))
 CONCURRENT_SWARM = int(os.environ.get("CONCURRENT_SWARM", "1"))
-
-# Phase-specific token caps for efficient 2-phase solver
-PHASE1_MAX_TOKENS = int(os.environ.get("PHASE1_MAX_TOKENS", "6000"))
-PHASE2_MAX_TOKENS = int(os.environ.get("PHASE2_MAX_TOKENS", "3000"))
 
 
 def call_llm(prompt: str, model: str, max_tokens: int = None, stream: bool = False) -> Tuple[str, Dict]:
@@ -117,17 +105,19 @@ def call_llm(prompt: str, model: str, max_tokens: int = None, stream: bool = Fal
         return content, usage
 
 
-class AgentA:
-    """Answerer - uses the configured solver model (primary/backup)."""
-    
-    @staticmethod
+class Solver:
+    """Per-question solver. Takes a question and returns a single company-name answer."""
+
+    def __init__(self, model: str, mode_label: str):
+        self.model = model
+        self.mode_label = mode_label
+
     def answer_question(
+        self,
         doc: str,
         question_num: int,
         question: str,
         companies: List[str],
-        model: str,
-        mode_label: str,
     ) -> Tuple[str, Dict]:
         prompt = f"""Answer this question by finding the EXACT company name in the document.
 
@@ -148,133 +138,49 @@ INSTRUCTIONS:
 
 COMPANY NAME:"""
 
-        print(f"  → Agent A.{question_num} ({mode_label}: {model[:20]}...) answering...", end=' ', flush=True)
-        response, usage = call_llm(prompt, model, max_tokens=500)
-        
+        print(f"  → Solver.{question_num} ({self.mode_label}: {self.model[:20]}...) answering...", end='', flush=True)
+        response, usage = call_llm(prompt, self.model, max_tokens=500)
+
         # Extract company name
         for company in companies:
             if company.lower() in response.lower():
-                print(f"→ {company}")
+                print(f" → {company}")
                 return company, usage
-        
+
         first_line = response.split('\n')[0].strip()
-        print(f"→ {first_line}")
+        print(f" → {first_line}")
         return first_line, usage
-
-
-class AgentB:
-    """Verifier - uses the configured solver model (primary/backup) as checker."""
-    
-    @staticmethod
-    def verify_answer(
-        doc: str,
-        question: str,
-        answer: str,
-        companies: List[str],
-        model: str,
-        mode_label: str,
-    ) -> Tuple[bool, Optional[str], Dict]:
-        prompt = f"""Verify if this answer is correct.
-
-DOCUMENT:
-{doc}
-
-QUESTION:
-{question}
-
-PROPOSED ANSWER:
-{answer}
-
-INSTRUCTIONS:
-1. Verify against the document
-2. If CORRECT, output EXACTLY: CORRECT
-3. If WRONG, output EXACTLY: WRONG: CorrectAnswer (single line)
-4. Do NOT add any extra explanation, text, or formatting
-
-OUTPUT:"""
-
-        print(f"  → Agent B ({mode_label}: {model[:20]}...) verifying...", end=' ', flush=True)
-        response, usage = call_llm(prompt, model, max_tokens=500)
-        
-        response_upper = response.upper().strip()
-        
-        if 'CORRECT' in response_upper and 'WRONG' not in response_upper:
-            print("✓ CORRECT")
-            return True, None, usage
-        
-        if ':' in response:
-            corrected = response.split(':', 1)[1].strip()
-            for company in companies:
-                if company.lower() in corrected.lower():
-                    print(f"✗ WRONG → {company}")
-                    return False, company, usage
-            print(f"✗ WRONG → {corrected}")
-            return False, corrected, usage
-        
-        print("✗ UNCERTAIN")
-        return False, None, usage
 
 
 class Orchestrator:
     """Main coordinator - Uses ORCHESTRATOR_MODEL"""
     
     def __init__(self):
-        self.answers = {}
+        self.answers: Dict[int, str] = {}
         self.total_usage = {'prompt_tokens': 0, 'completion_tokens': 0, 'total_tokens': 0}
+        # Per-question solvers
+        self.primary_solver = Solver(SOLVER_MODEL_PRIMARY, "primary")
+        self.backup_solver = Solver(SOLVER_MODEL_BACKUP, "backup")
     
     def log(self, msg: str):
         timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
         print(f"[{timestamp}] {msg}")
     
     def solve_question(self, doc: str, question_num: int, question: str, companies: List[str], use_backup: bool = False) -> str:
+        """
+        Solve a single question by delegating to the Solver.
+        No separate verification step; the solver's first answer is used.
+        """
         print(f"\n[Q{question_num}] {question[:60]}...")
-        
-        # Choose models for this question depending on primary vs backup pass
-        if use_backup:
-            solver_model = SOLVER_MODEL_BACKUP
-            checker_model = SOLVER_MODEL_BACKUP
-            mode_label = "backup"
-        else:
-            solver_model = SOLVER_MODEL_PRIMARY
-            checker_model = SOLVER_MODEL_PRIMARY
-            mode_label = "primary"
-        
-        for attempt in range(MAX_RETRIES):
-            # Agent A answers
-            answer, usage_a = AgentA.answer_question(
-                doc,
-                question_num,
-                question,
-                companies,
-                solver_model,
-                mode_label,
-            )
-            self.total_usage['prompt_tokens'] += usage_a['prompt_tokens']
-            self.total_usage['completion_tokens'] += usage_a['completion_tokens']
-            self.total_usage['total_tokens'] += usage_a['total_tokens']
-            
-            # Agent B verifies
-            is_correct, correction, usage_b = AgentB.verify_answer(
-                doc,
-                question,
-                answer,
-                companies,
-                checker_model,
-                mode_label,
-            )
-            self.total_usage['prompt_tokens'] += usage_b['prompt_tokens']
-            self.total_usage['completion_tokens'] += usage_b['completion_tokens']
-            self.total_usage['total_tokens'] += usage_b['total_tokens']
-            
-            if is_correct:
-                return answer
-            
-            if correction:
-                return correction
-            
-            print(f"  ⚠ Retry {attempt+2}/{MAX_RETRIES}...")
-        
-        print(f"  ⚠ Max retries, using: {answer}")
+
+        solver = self.backup_solver if use_backup else self.primary_solver
+        answer, usage = solver.answer_question(doc, question_num, question, companies)
+
+        # Track usage
+        self.total_usage['prompt_tokens'] += usage.get('prompt_tokens', 0)
+        self.total_usage['completion_tokens'] += usage.get('completion_tokens', 0)
+        self.total_usage['total_tokens'] += usage.get('total_tokens', 0)
+
         return answer
     
     def solve_all_questions(self, doc: str, questions: List[str], companies: List[str]) -> Dict[int, str]:
@@ -360,13 +266,15 @@ FAILED CONSTRAINTS: {failed_constraints}"""
         Main entry point with smart retry logic.
         On retry: Only re-solves questions related to failed constraints.
         """
-        
-        if USE_EFFICIENT_MODE:
-            artifact = self._solve_efficient(doc, questions, constraints, companies, previous_artifact, failed_constraints)
-            return artifact, {}
-        else:
-            return self._solve_multi_agent_smart(doc, questions, constraints, companies, 
-                                                 previous_artifact, failed_constraints, previous_answers)
+        return self._solve_multi_agent_smart(
+            doc,
+            questions,
+            constraints,
+            companies,
+            previous_artifact,
+            failed_constraints,
+            previous_answers,
+        )
     
     def _solve_multi_agent(self, doc, questions, constraints, companies, previous_artifact, failed_constraints):
         """Original multi-agent - solve all questions."""
@@ -458,76 +366,3 @@ FAILED CONSTRAINTS: {failed_constraints}"""
         artifact = self.construct_artifact(answers, constraints, previous_artifact, failed_constraints)
         return artifact
     
-    def _solve_efficient(self, doc, questions, constraints, companies, previous_artifact, failed_constraints):
-        """Efficient 2-phase approach using only ORCHESTRATOR_MODEL"""
-        print(f"\n{'='*60}")
-        print(f"EFFICIENT MODE (2-phase with {ORCHESTRATOR_MODEL})")
-        print(f"{'='*60}")
-        
-        # Phase 1: Answer all questions
-        print(f"\nPhase 1: Answering {len(questions)} questions...")
-        phase1_prompt = f"""Answer all 10 questions from the document.
-
-DOCUMENT:
-{doc[:12000]}
-
-QUESTIONS:
-{chr(10).join([f"{i+1}. {q}" for i, q in enumerate(questions)])}
-
-OUTPUT JSON:
-{{"Q1": "Company", "Q2": "Company", ...}}
-
-RESPONSE RULES:
-1. Return a SINGLE valid JSON object exactly in the format above.
-2. Keys MUST be Q1 through Q10.
-3. Values MUST be plain company names (strings).
-4. Do NOT include any explanation, markdown, or extra text before or after the JSON.
-
-JSON ONLY:"""
-        
-        response1, usage1 = call_llm(phase1_prompt, ORCHESTRATOR_MODEL, max_tokens=PHASE1_MAX_TOKENS)
-        self.total_usage['prompt_tokens'] += usage1['prompt_tokens']
-        self.total_usage['completion_tokens'] += usage1['completion_tokens']
-        self.total_usage['total_tokens'] += usage1['total_tokens']
-        print(f"✓ Phase 1: {usage1['total_tokens']} tokens")
-        
-        # Parse answers
-        try:
-            json_start = response1.find('{')
-            json_end = response1.rfind('}') + 1
-            answers = json.loads(response1[json_start:json_end]) if json_start >= 0 else {}
-        except:
-            answers = {}
-        
-        # Phase 2: Construct artifact
-        print(f"\nPhase 2: Constructing artifact...")
-        phase2_prompt = f"""Construct artifact from answers.
-
-ANSWERS:
-{json.dumps(answers, indent=2)}
-
-CONSTRAINTS:
-{json.dumps(constraints, indent=2)}
-
-INSTRUCTIONS:
-1. Use the answers and constraints to construct the final artifact.
-2. The artifact MUST satisfy ALL constraints exactly (including word counts, acrostics, and character rules).
-3. Your FINAL RESPONSE MUST BE EXACTLY ONE LINE: the artifact string and nothing else.
-4. Do NOT include labels, prefixes, explanations, JSON, or markdown.
-
-OUTPUT ONLY THE SINGLE-LINE ARTIFACT:"""
-        
-        if previous_artifact and failed_constraints:
-            phase2_prompt += f"\n\nFIX: Previous {previous_artifact} failed on {failed_constraints}"
-        
-        response2, usage2 = call_llm(phase2_prompt, ORCHESTRATOR_MODEL, max_tokens=PHASE2_MAX_TOKENS)
-        self.total_usage['prompt_tokens'] += usage2['prompt_tokens']
-        self.total_usage['completion_tokens'] += usage2['completion_tokens']
-        self.total_usage['total_tokens'] += usage2['total_tokens']
-        print(f"✓ Phase 2: {usage2['total_tokens']} tokens")
-        
-        artifact = response2.strip().split('\n')[-1].strip()
-        print(f"\n✓ Total: {self.total_usage['total_tokens']} tokens")
-        print(f"✓ Artifact: {artifact[:80]}... ({len(artifact.split())} words)")
-        
-        return artifact
