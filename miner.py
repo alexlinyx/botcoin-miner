@@ -203,20 +203,27 @@ class BotcoinMiner:
         self.log(f"BOTCOIN: {botcoin_response}")
         
         # Parse BOTCOIN amount from response
-        # Expected format: "botcoin (0xa601...) on base: 106,567,319.07 ($2,539.73 usd)"
+        # Formats seen:
+        # "botcoin on base: BOTCOIN - 106567319.07 [$2,570.64]"
+        # "BOTCOIN (0xa601...) on base: 106,567,319.07 ($2,539.73 usd)"
         import re
         
         botcoin_balance = 0
         
-        # Pattern 1: "on base: NUMBER" (stop at parenthesis or space)
-        match = re.search(r'on base:\s*([\d,]+\.?\d*)', botcoin_response, re.IGNORECASE)
+        # Pattern 1: "BOTCOIN - NUMBER ["
+        match = re.search(r'BOTCOIN\s*-\s*([\d,]+\.?\d*)\s*\[', botcoin_response, re.IGNORECASE)
         if match:
             botcoin_balance = float(match.group(1).replace(',', ''))
         else:
-            # Pattern 2: Look for number with commas before "($"
-            match = re.search(r'([\d,]+\.?\d*)\s*\(', botcoin_response)
+            # Pattern 2: "on base: NUMBER ("
+            match = re.search(r'on base:\s*([\d,]+\.?\d*)\s*\(', botcoin_response, re.IGNORECASE)
             if match:
                 botcoin_balance = float(match.group(1).replace(',', ''))
+            else:
+                # Pattern 3: "on base: NUMBER ["
+                match = re.search(r'on base:\s*([\d,]+\.?\d*)\s*\[', botcoin_response, re.IGNORECASE)
+                if match:
+                    botcoin_balance = float(match.group(1).replace(',', ''))
         
         self.log(f"Parsed BOTCOIN balance: {botcoin_balance:,.0f}")
         return {"botcoin": botcoin_balance, "eth_response": eth_response}
