@@ -17,6 +17,24 @@ BANKR_API_KEY = os.environ.get("BANKR_API_KEY")
 
 BOTCOIN_ADDRESS = "0xA601877977340862Ca67f816eb079958E5bd0BA3"
 
+# Try to import cloudscraper for Cloudflare bypass
+try:
+    import cloudscraper
+    HAS_CLOUDSCRAPER = True
+except ImportError:
+    HAS_CLOUDSCRAPER = False
+
+# Use cloudscraper if available
+if HAS_CLOUDSCRAPER:
+    session = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'darwin', 'desktop': True})
+else:
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+    })
+
 
 def get_miner_address():
     """Get the miner's EVM wallet address."""
@@ -70,21 +88,30 @@ def check_epoch_status():
     print("-" * 40)
     
     try:
-        resp = requests.get(f"{COORDINATOR_URL}/v1/epoch")
+        resp = session.get(f"{COORDINATOR_URL}/v1/epoch")
         data = resp.json()
         
-        print(f"Current Epoch: {data.get('epochId', 'N/A')}")
-        print(f"Previous Epoch: {data.get('prevEpochId', 'N/A')}")
+        epoch_id = data.get('epochId', 'N/A')
+        prev_epoch_id = data.get('prevEpochId', 'N/A')
+        
+        print(f"Current Epoch: {epoch_id}")
+        print(f"Previous Epoch: {prev_epoch_id}")
         
         next_start = data.get('nextEpochStartTimestamp')
         if next_start:
-            next_dt = datetime.fromtimestamp(next_start)
-            print(f"Next Epoch Starts: {next_dt}")
+            try:
+                next_dt = datetime.fromtimestamp(int(next_start))
+                print(f"Next Epoch Starts: {next_dt}")
+            except (ValueError, TypeError):
+                print(f"Next Epoch Start Timestamp: {next_start}")
         
         duration = data.get('epochDurationSeconds', 0)
         if duration:
-            hours = duration / 3600
-            print(f"Epoch Duration: {hours:.1f} hours")
+            try:
+                hours = int(duration) / 3600
+                print(f"Epoch Duration: {hours:.1f} hours")
+            except (ValueError, TypeError):
+                print(f"Epoch Duration: {duration} seconds")
             
     except Exception as e:
         print(f"Error: {e}")
@@ -100,7 +127,7 @@ def check_credits(miner_address):
         return
     
     try:
-        resp = requests.get(
+        resp = session.get(
             f"{COORDINATOR_URL}/v1/credits",
             params={"miner": miner_address}
         )
@@ -136,10 +163,18 @@ def check_claimable_epochs(miner_address):
     
     # Get current epoch
     try:
-        resp = requests.get(f"{COORDINATOR_URL}/v1/epoch")
+        resp = session.get(f"{COORDINATOR_URL}/v1/epoch")
         epoch_data = resp.json()
+        
         current_epoch = epoch_data.get("epochId", 0)
         prev_epoch = epoch_data.get("prevEpochId")
+        
+        # Convert to int if strings
+        try:
+            current_epoch = int(current_epoch)
+            prev_epoch = int(prev_epoch) if prev_epoch else None
+        except (ValueError, TypeError):
+            pass
         
         if not prev_epoch:
             print("No completed epochs yet")
@@ -147,9 +182,10 @@ def check_claimable_epochs(miner_address):
         
         # Check a few previous epochs
         claimable = []
-        for epoch_id in range(max(1, prev_epoch - 5), prev_epoch + 1):
+        start_epoch = max(1, int(prev_epoch) - 5)
+        for epoch_id in range(start_epoch, int(prev_epoch) + 1):
             try:
-                resp = requests.get(
+                resp = session.get(
                     f"{COORDINATOR_URL}/v1/claim-calldata",
                     params={"epochs": epoch_id}
                 )
