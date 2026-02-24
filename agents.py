@@ -299,12 +299,101 @@ FAILED CONSTRAINTS: {failed_constraints}"""
     
     def solve_challenge(self, doc: str, questions: List[str], constraints: List[str], 
                        companies: List[str], previous_artifact: str = None, 
-                       failed_constraints: List[int] = None) -> str:
+                       failed_constraints: List[int] = None, previous_answers: Dict = None) -> Tuple[str, Dict]:
+        """
+        Main entry point with smart retry logic.
+        On retry: Only re-solves questions related to failed constraints.
+        """
         
         if USE_EFFICIENT_MODE:
-            return self._solve_efficient(doc, questions, constraints, companies, previous_artifact, failed_constraints)
+            artifact = self._solve_efficient(doc, questions, constraints, companies, previous_artifact, failed_constraints)
+            return artifact, {}
         else:
-            return self._solve_multi_agent(doc, questions, constraints, companies, previous_artifact, failed_constraints)
+            return self._solve_multi_agent_smart(doc, questions, constraints, companies, 
+                                                 previous_artifact, failed_constraints, previous_answers)
+    
+    def _solve_multi_agent(self, doc, questions, constraints, companies, previous_artifact, failed_constraints):
+        """Original multi-agent - solve all questions."""
+        self.solve_all_questions(doc, questions, companies)
+        artifact = self.construct_artifact(self.answers, constraints, previous_artifact, failed_constraints)
+        return artifact, self.answers
+    
+    def _solve_multi_agent_smart(self, doc, questions, constraints, companies, 
+                                  previous_artifact, failed_constraints, previous_answers):
+        """
+        Multi-agent with intelligent retry:
+        - First attempt: Solve all questions
+        - Retry: Only solve questions related to failed constraints
+        """
+        
+        # Determine which questions need solving
+        if previous_answers and failed_constraints:
+            # Smart retry: Map failed constraints to questions
+            questions_to_resolve = self._map_constraints_to_questions(failed_constraints, constraints)
+            
+            print(f"\n{'='*60}")
+            print(f"SMART RETRY: {len(questions_to_resolve)} questions need re-solving")
+            print(f"Failed constraints: {failed_constraints}")
+            print(f"{'='*60}\n")
+            
+            # Copy previous answers
+            self.answers = previous_answers.copy()
+            
+            # Only re-solve failed questions
+            for q_num in questions_to_resolve:
+                if 1 <= q_num <= len(questions):
+                    print(f"\n[Re-solving Q{q_num}] Previous: {self.answers.get(q_num, 'N/A')}")
+                    answer = self.solve_question(doc, q_num, questions[q_num-1], companies)
+                    self.answers[q_num] = answer
+                    print(f"[Updated Q{q_num}] New: {answer}")
+        else:
+            # First attempt: Solve all questions
+            self.solve_all_questions(doc, questions, companies)
+        
+        # Construct artifact with all answers
+        artifact = self.construct_artifact(self.answers, constraints, previous_artifact, failed_constraints)
+        
+        return artifact, self.answers
+    
+    def _map_constraints_to_questions(self, failed_constraints: List[int], constraints: List[str]) -> List[int]:
+        """
+        Map failed constraint indices to question numbers.
+        This is heuristic-based on typical BOTCOIN constraint patterns.
+        """
+        questions_to_resolve = set()
+        
+        for constraint_idx in failed_constraints:
+            if constraint_idx < len(constraints):
+                constraint = constraints[constraint_idx].lower()
+                
+                # Map based on constraint content
+                if 'q1' in constraint or 'question 1' in constraint or 'q1 answer' in constraint:
+                    questions_to_resolve.add(1)
+                if 'q2' in constraint or 'question 2' in constraint or 'q2 answer' in constraint:
+                    questions_to_resolve.add(2)
+                if 'q3' in constraint or 'question 3' in constraint or 'q3 answer' in constraint:
+                    questions_to_resolve.add(3)
+                if 'q4' in constraint or 'question 4' in constraint or 'q4 answer' in constraint:
+                    questions_to_resolve.add(4)
+                if 'q5' in constraint or 'question 5' in constraint or 'q5 answer' in constraint:
+                    questions_to_resolve.add(5)
+                if 'q6' in constraint or 'question 6' in constraint or 'q6 answer' in constraint:
+                    questions_to_resolve.add(6)
+                if 'q7' in constraint or 'question 7' in constraint or 'q7 answer' in constraint:
+                    questions_to_resolve.add(7)
+                if 'q8' in constraint or 'question 8' in constraint or 'q8 answer' in constraint:
+                    questions_to_resolve.add(8)
+                if 'q9' in constraint or 'question 9' in constraint or 'q9 answer' in constraint:
+                    questions_to_resolve.add(9)
+                if 'q10' in constraint or 'question 10' in constraint or 'q10 answer' in constraint:
+                    questions_to_resolve.add(10)
+        
+        # If we couldn't map, re-solve last 3 questions as fallback
+        if not questions_to_resolve:
+            print("⚠ Could not map constraints to questions, using fallback (Q8, Q9, Q10)")
+            questions_to_resolve = {8, 9, 10}
+        
+        return sorted(list(questions_to_resolve))
     
     def _solve_multi_agent(self, doc, questions, constraints, companies, previous_artifact, failed_constraints):
         """Original multi-agent approach"""
