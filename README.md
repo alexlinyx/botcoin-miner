@@ -55,10 +55,8 @@ cp .env.example .env
 
 Required:
 - `BANKR_API_KEY` - Your Bankr API key
-- `LLM_API_KEY` - Your OpenAI API key
 
 Optional:
-- `LLM_MODEL` - Model to use (default: gpt-4o)
 - `COORDINATOR_URL` - Coordinator endpoint
 
 ### 4. Run
