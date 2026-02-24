@@ -12,7 +12,7 @@ import requests
 from typing import Optional, Dict, Any, Tuple
 from dotenv import load_dotenv
 
-# Import multi-agent orchestration
+# Import multi-agent orchestration (swarm solver)
 from agents import Orchestrator
 
 load_dotenv()
@@ -52,6 +52,8 @@ class BotcoinMiner:
     def __init__(self):
         self.miner_address: Optional[str] = None
         self.token: Optional[str] = None
+        # Swarm orchestrator (multi-agent solver)
+        self.orchestrator = Orchestrator()
         
         # Stats tracking
         self.stats = {
@@ -493,10 +495,7 @@ Remember: The artifact must be EXACTLY ONE LINE after "ARTIFACT:" - no other tex
             self.log("Warning: Hit max_tokens limit")
 
         if not artifact:
-            raise Exception(f"Empty artifact from Venice AI")
-
-        if not artifact:
-            raise Exception(f"Empty artifact from Venice AI: {result}")
+            raise Exception("Empty artifact from Venice AI")
 
         # Extract just the last line if model included reasoning
         lines = [l.strip() for l in artifact.split('\n') if l.strip()]
@@ -650,19 +649,56 @@ Remember: The artifact must be EXACTLY ONE LINE after "ARTIFACT:" - no other tex
         print("=" * 50 + "\n")
 
     def mine_one(self) -> bool:
-        """Run one mining cycle with self-correction. Returns True if successful."""
+        """
+        Run one mining cycle using swarm (multi-agent) solver with an efficient
+        2-phase fallback. Returns True if successful.
+        """
         previous_artifact = None
         failed_constraints = None
+        previous_answers = None
 
-        # Get challenge once, retry with same challenge
+        # Get challenge once, retry on the same challenge with feedback
         challenge = self.get_challenge()
+
+        # Extract challenge components once
+        doc = challenge.get("doc", "")
+        questions = challenge.get("questions", [])
+        constraints = challenge.get("constraints", [])
+        companies = challenge.get("companies", [])
 
         for attempt in range(MAX_RETRIES):
             try:
-                # Solve (with feedback if retry)
-                artifact, reasoning_chunks, prompt_tokens, completion_tokens = self.solve(challenge, previous_artifact, failed_constraints)
+                # All but the last attempt: swarm multi-agent with smart retry
+                use_efficient_fallback = (attempt == MAX_RETRIES - 1)
 
-                # Submit
+                if not use_efficient_fallback:
+                    self.log(f"Solving with swarm multi-agent (attempt {attempt + 1}/{MAX_RETRIES})...")
+                    # Smart multi-agent retry: re-solves only questions linked to failed constraints
+                    artifact, previous_answers = self.orchestrator._solve_multi_agent_smart(
+                        doc,
+                        questions,
+                        constraints,
+                        companies,
+                        previous_artifact,
+                        failed_constraints,
+                        previous_answers,
+                    )
+                else:
+                    # Final attempt on this challenge: efficient 2-phase fallback
+                    self.log(f"Using efficient 2-phase fallback solver (attempt {attempt + 1}/{MAX_RETRIES})...")
+                    artifact = self.orchestrator._solve_efficient(
+                        doc,
+                        questions,
+                        constraints,
+                        companies,
+                        previous_artifact,
+                        failed_constraints,
+                    )
+
+                # Submit (we don't have fine-grained token/reasoning here)
+                reasoning_chunks = []
+                prompt_tokens = 0
+                completion_tokens = 0
                 result = self.submit(challenge, artifact, reasoning_chunks, prompt_tokens, completion_tokens)
 
                 if result.get("pass"):
@@ -675,6 +711,7 @@ Remember: The artifact must be EXACTLY ONE LINE after "ARTIFACT:" - no other tex
                 else:
                     self.stats["fails"] += 1
                     self._save_stats()
+
                     # Extract failed constraints for next retry
                     failed_constraints = result.get("failedConstraintIndices", [])
                     previous_artifact = artifact
@@ -683,8 +720,14 @@ Remember: The artifact must be EXACTLY ONE LINE after "ARTIFACT:" - no other tex
                     if "error" in result and "nonce" in str(result.get("error", "")).lower():
                         self.log("Challenge stale, getting new one...")
                         challenge = self.get_challenge()
+                        # Refresh challenge components
+                        doc = challenge.get("doc", "")
+                        questions = challenge.get("questions", [])
+                        constraints = challenge.get("constraints", [])
+                        companies = challenge.get("companies", [])
                         previous_artifact = None
                         failed_constraints = None
+                        previous_answers = None
 
                     self.log(f"Attempt {attempt + 1}/{MAX_RETRIES} failed. Constraints: {failed_constraints}")
 
@@ -748,7 +791,7 @@ Remember: The artifact must be EXACTLY ONE LINE after "ARTIFACT:" - no other tex
                 break
             except Exception as e:
                 self.log(f"Error in loop: {e}")
-                time.sleep(10)
+                time.sleep(60)
 
 
 if __name__ == "__main__":
