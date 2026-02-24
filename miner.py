@@ -416,7 +416,7 @@ ARTIFACT:"""
             raise Exception(f"Venice AI error ({resp.status_code}): {error_msg}")
         
         # Collect streaming response
-        self.log("Streaming response from Venice AI...")
+        self.log(f"Streaming response from Venice AI (saving to streaming.log)...")
         artifact_chunks = []
         reasoning_chunks = []
         finish_reason = None
@@ -448,16 +448,12 @@ ARTIFACT:"""
                 content = delta.get('content')
                 if content:
                     artifact_chunks.append(content)
-                    # Real-time output: print content as it arrives
-                    print(content, end='', flush=True)
                     streaming_log.write(content)
                     chunk_count += 1
                 
                 reasoning = delta.get('reasoning_content')
                 if reasoning:
                     reasoning_chunks.append(reasoning)
-                    # Print reasoning in dim/gray if terminal supports it
-                    print(f"\033[90m{reasoning}\033[0m", end='', flush=True)
                     streaming_log.write(f"[REASONING] {reasoning}")
                     chunk_count += 1
                 
@@ -479,11 +475,7 @@ ARTIFACT:"""
         streaming_log.write(f"[CHUNKS: {chunk_count}]\n")
         streaming_log.close()
         
-        # Newline after streaming output
-        if chunk_count > 0:
-            print()  # Newline after streaming
-        
-        self.log(f"Received {chunk_count} chunks (saved to streaming.log)")
+        self.log(f"Received {chunk_count} chunks")
         
         # Combine chunks
         artifact = ''.join(artifact_chunks).strip()
