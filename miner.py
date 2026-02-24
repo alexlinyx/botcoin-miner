@@ -434,9 +434,9 @@ ARTIFACT:"""
                 "model": VENICE_MODEL,
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.0,  # Deterministic output
-                "max_tokens": 2000
+                "max_tokens": 8000   # Increased for reasoning models
             },
-            timeout=180
+            timeout=300  # 5 minutes for reasoning
         )
         
         result = resp.json()
@@ -456,10 +456,22 @@ ARTIFACT:"""
         
         # Check for stop reasons
         finish_reason = choice.get("finish_reason")
-        if finish_reason and finish_reason != "stop":
+        if finish_reason and finish_reason not in ("stop", "length"):
             self.log(f"Warning: Venice AI finish_reason: {finish_reason}")
         
-        artifact = choice.get("message", {}).get("content", "").strip()
+        if finish_reason == "length":
+            self.log("Warning: Hit max_tokens limit, consider increasing")
+        
+        # Get content - handle both regular content and reasoning_content
+        message = choice.get("message", {})
+        artifact = message.get("content", "").strip()
+        
+        # DeepSeek reasoning models put output in reasoning_content
+        if not artifact:
+            reasoning = message.get("reasoning_content", "").strip()
+            if reasoning:
+                self.log("Found output in reasoning_content (DeepSeek reasoning mode)")
+                artifact = reasoning
         
         if not artifact:
             raise Exception(f"Empty artifact from Venice AI: {result}")
