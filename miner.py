@@ -475,6 +475,19 @@ ARTIFACT:"""
         streaming_log.write(f"[CHUNKS: {chunk_count}]\n")
         streaming_log.close()
         
+        # Rotate log: keep only last 10 solves (prevents file from growing too large)
+        try:
+            with open("streaming.log", "r") as f:
+                content = f.read()
+            # Split by solve markers and keep last 10
+            solves = content.split("=" * 60)
+            if len(solves) > 11:  # 10 solves + header
+                trimmed = ("=" * 60).join(solves[-11:])
+                with open("streaming.log", "w") as f:
+                    f.write(trimmed)
+        except:
+            pass  # Don't fail if log rotation fails
+        
         self.log(f"Received {chunk_count} chunks")
         
         # Combine chunks
