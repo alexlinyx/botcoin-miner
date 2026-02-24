@@ -192,45 +192,58 @@ class Orchestrator:
     
     def solve_question(self, doc: str, question_num: int, question: str, companies: List[str]) -> str:
         """Solve a single question with verification loop."""
+        # Print to terminal which question we're working on
+        print(f"\n[Q{question_num}] {question[:80]}...")
+        
         for attempt in range(MAX_RETRIES):
             # Agent A answers
+            print(f"  → Agent A answering...", end='', flush=True)
             answer, usage_a = AgentA.answer_question(doc, question, companies)
             self.total_usage['prompt_tokens'] += usage_a['prompt_tokens']
             self.total_usage['completion_tokens'] += usage_a['completion_tokens']
             self.total_usage['total_tokens'] += usage_a['total_tokens']
             
+            print(f" {answer}")
             self.log(f"  Q{question_num} Attempt {attempt+1}: Agent A → {answer}")
             
             # Agent B verifies
+            print(f"  → Agent B verifying...", end='', flush=True)
             is_correct, correction, usage_b = AgentB.verify_answer(doc, question, answer, companies)
             self.total_usage['prompt_tokens'] += usage_b['prompt_tokens']
             self.total_usage['completion_tokens'] += usage_b['completion_tokens']
             self.total_usage['total_tokens'] += usage_b['total_tokens']
             
             if is_correct:
+                print(f" ✓ CORRECT")
                 self.log(f"  Q{question_num} ✓ Verified: {answer}")
                 return answer
             
             if correction:
+                print(f" ✗ WRONG → {correction}")
                 self.log(f"  Q{question_num} ✗ Wrong. Corrected to: {correction}")
                 return correction
             
+            print(f" ✗ FAILED (retry {attempt+2}/{MAX_RETRIES})")
             self.log(f"  Q{question_num} ✗ Verification failed, retrying...")
         
         # Return best guess after max retries
+        print(f"  ⚠ MAX RETRIES, using: {answer}")
         self.log(f"  Q{question_num} ⚠ Max retries reached, using: {answer}")
         return answer
     
     def solve_all_questions(self, doc: str, questions: List[str], companies: List[str]) -> Dict[int, str]:
         """Solve all questions using agent swarm."""
         mode = f"CONCURRENT={CONCURRENT_SWARM}" if CONCURRENT_SWARM > 1 else "SEQUENTIAL"
-        self.log(f"Solving {len(questions)} questions ({mode} mode)...")
+        print(f"\n{'='*60}")
+        print(f"ORCHESTRATOR: Solving {len(questions)} questions ({mode} mode)")
+        print(f"{'='*60}\n")
         
         if CONCURRENT_SWARM > 1:
             # Parallel execution with limited concurrency
             from concurrent.futures import ThreadPoolExecutor, as_completed
             
             max_workers = min(CONCURRENT_SWARM, len(questions))
+            print(f"Spawning {max_workers} concurrent agent swarms...\n")
             
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {
@@ -238,11 +251,14 @@ class Orchestrator:
                     for i, q in enumerate(questions)
                 }
                 
+                completed = 0
                 for future in as_completed(futures):
                     q_num = futures[future]
+                    completed += 1
                     try:
                         answer = future.result()
                         self.answers[q_num] = answer
+                        print(f"\n[Progress: {completed}/{len(questions)}] Q{q_num} completed")
                     except Exception as e:
                         self.log(f"  Q{q_num} ✗ Error: {e}")
                         self.answers[q_num] = "UNKNOWN"
@@ -250,10 +266,13 @@ class Orchestrator:
             # Sequential execution
             for i, question in enumerate(questions):
                 q_num = i + 1
+                print(f"\n[Progress: {q_num}/{len(questions)}]")
                 answer = self.solve_question(doc, q_num, question, companies)
                 self.answers[q_num] = answer
         
-        self.log(f"All questions solved. Token usage: {self.total_usage['total_tokens']}")
+        print(f"\n{'='*60}")
+        print(f"All questions solved! Token usage: {self.total_usage['total_tokens']}")
+        print(f"{'='*60}\n")
         return self.answers
     
     def construct_artifact(self, answers: Dict[int, str], constraints: List[str], previous_artifact: str = None, failed_constraints: List[int] = None) -> str:
