@@ -15,7 +15,8 @@ from typing import Optional, Dict, Any
 COORDINATOR_URL = os.environ.get("COORDINATOR_URL", "https://coordinator.agentmoney.net")
 BANKR_API_KEY = os.environ.get("BANKR_API_KEY")
 VENICE_API_KEY = os.environ.get("VENICE_API_KEY")  # Venice AI API key
-VENICE_MODEL = os.environ.get("VENICE_MODEL", "llama-3.3-70b")  # Options: llama-3.3-70b, zai-org-glm-4.7, venice-uncensored
+# Best models for BOTCOIN reasoning: qwen3-235b-a22b-thinking-2507, deepseek-v3.2, zai-org-glm-5
+VENICE_MODEL = os.environ.get("VENICE_MODEL", "deepseek-v3.2")
 VENICE_BASE_URL = os.environ.get("VENICE_BASE_URL", "https://api.venice.ai/api/v1")
 
 # Botcoin token address

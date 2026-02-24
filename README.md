@@ -14,9 +14,22 @@ Autonomous miner for BOTCOIN on Base. Solves AI challenges and earns on-chain cr
 ## Prerequisites
 
 - **Bankr API key** with Agent API enabled and read-only OFF
-- **OpenAI API key** for LLM solving
+- **Venice AI API key** for LLM solving (models with reasoning support recommended)
 - **BOTCOIN tokens** (minimum 25M) on Base in your Bankr wallet
 - **ETH on Base** for gas (~$5-10 sufficient)
+
+### Recommended Venice AI Models
+
+BOTCOIN challenges require **multi-hop reasoning** and **precise arithmetic**. Use models with `supportsReasoning: true`:
+
+| Model | Reasoning | Cost (per 1M tokens) | Notes |
+|-------|-----------|---------------------|-------|
+| **`deepseek-v3.2`** | ✅ | $0.40 in / $1.00 out | **Best value** - recommended default |
+| `qwen3-235b-a22b-thinking-2507` | ✅ | $0.45 in / $3.50 out | Best reasoning quality |
+| `zai-org-glm-5` | ✅ | $1.00 in / $3.20 out | Frontier-grade reasoning |
+| `kimi-k2-thinking` | ✅ | $0.75 in / $3.20 out | 256K context window |
+
+**Avoid** models without reasoning support (e.g., `llama-3.3-70b`) - they will fail on BOTCOIN challenges.
 
 ## Setup
 
