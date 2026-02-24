@@ -18,6 +18,10 @@ VENICE_MODEL = os.environ.get("VENICE_MODEL", "zai-org-glm-5")
 VENICE_BASE_URL = os.environ.get("VENICE_BASE_URL", "https://api.venice.ai/api/v1")
 MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "32000"))
 
+# Phase-specific token caps for 2-phase solver
+PHASE1_MAX_TOKENS = int(os.environ.get("PHASE1_MAX_TOKENS", "8000"))
+PHASE2_MAX_TOKENS = int(os.environ.get("PHASE2_MAX_TOKENS", "4000"))
+
 
 def call_llm(prompt: str, max_tokens: int = None) -> Tuple[str, Dict]:
     """Make single LLM call."""
@@ -92,7 +96,7 @@ RESPONSE RULES:
 JSON OUTPUT ONLY:"""
 
     print("→ Calling LLM to answer all questions...")
-    response1, usage1 = call_llm(phase1_prompt, max_tokens=8000)
+    response1, usage1 = call_llm(phase1_prompt, max_tokens=PHASE1_MAX_TOKENS)
     print(f"✓ Phase 1 complete ({usage1.get('total_tokens', 0)} tokens)")
     
     # Parse answers
@@ -138,7 +142,7 @@ INSTRUCTIONS:
 OUTPUT ONLY THE SINGLE-LINE ARTIFACT:"""
 
     print("→ Calling LLM to construct artifact...")
-    response2, usage2 = call_llm(phase2_prompt, max_tokens=4000)
+    response2, usage2 = call_llm(phase2_prompt, max_tokens=PHASE2_MAX_TOKENS)
     print(f"✓ Phase 2 complete ({usage2.get('total_tokens', 0)} tokens)")
     
     # Extract artifact

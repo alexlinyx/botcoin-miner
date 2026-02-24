@@ -34,6 +34,10 @@ MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "32000"))
 MAX_RETRIES = int(os.environ.get("MAX_RETRIES", "3"))
 CONCURRENT_SWARM = int(os.environ.get("CONCURRENT_SWARM", "1"))
 
+# Phase-specific token caps for efficient 2-phase solver
+PHASE1_MAX_TOKENS = int(os.environ.get("PHASE1_MAX_TOKENS", "6000"))
+PHASE2_MAX_TOKENS = int(os.environ.get("PHASE2_MAX_TOKENS", "3000"))
+
 
 def call_llm(prompt: str, model: str, max_tokens: int = None, stream: bool = False) -> Tuple[str, Dict]:
     """Call LLM with specified model."""
@@ -436,7 +440,7 @@ RESPONSE RULES:
 
 JSON ONLY:"""
         
-        response1, usage1 = call_llm(phase1_prompt, ORCHESTRATOR_MODEL, max_tokens=6000)
+        response1, usage1 = call_llm(phase1_prompt, ORCHESTRATOR_MODEL, max_tokens=PHASE1_MAX_TOKENS)
         self.total_usage['prompt_tokens'] += usage1['prompt_tokens']
         self.total_usage['completion_tokens'] += usage1['completion_tokens']
         self.total_usage['total_tokens'] += usage1['total_tokens']
@@ -471,7 +475,7 @@ OUTPUT ONLY THE SINGLE-LINE ARTIFACT:"""
         if previous_artifact and failed_constraints:
             phase2_prompt += f"\n\nFIX: Previous {previous_artifact} failed on {failed_constraints}"
         
-        response2, usage2 = call_llm(phase2_prompt, ORCHESTRATOR_MODEL, max_tokens=3000)
+        response2, usage2 = call_llm(phase2_prompt, ORCHESTRATOR_MODEL, max_tokens=PHASE2_MAX_TOKENS)
         self.total_usage['prompt_tokens'] += usage2['prompt_tokens']
         self.total_usage['completion_tokens'] += usage2['completion_tokens']
         self.total_usage['total_tokens'] += usage2['total_tokens']
