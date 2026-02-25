@@ -569,7 +569,7 @@ ARTIFACT:"""
             log_fp.write(f"Constraints: {challenge.get('constraints', [])}\n")
             log_fp.write(f"{'='*60}\n")
             log_fp.write(f"--- PROMPT (first 2000 chars) ---\n")
-            log_fp.write(prompt[:2000] + "\n")
+            log_fp.write(prompt + "\n")
             log_fp.write(f"{'='*60}\n")
         
         for line in resp.iter_lines():
