@@ -422,6 +422,8 @@ class BotcoinMiner:
         # Base prompt
         prompt = f"""You are solving a BOTCOIN mining challenge. This requires precise multi-hop reasoning and constraint satisfaction.
 
+IMPORTANT: Output ONLY the final artifact. Do not include any reasoning, thinking, or internal analysis in your response.
+
 DOCUMENT:
 {doc}
 
@@ -432,7 +434,11 @@ QUESTIONS TO ANSWER:
 {json.dumps(questions, indent=2)}
 
 CONSTRAINTS (your artifact must satisfy ALL of these):
-{json.dumps(constraints, indent=2)}"""
+{json.dumps(constraints, indent=2)}
+
+OUTPUT FORMAT:
+First show your reasoning (brief), then output ONLY the artifact on its own line:
+ARTIFACT: [your single-line answer]"""
         
         # Add self-correction feedback if this is a retry
         if previous_artifact and failed_constraints:
@@ -599,7 +605,18 @@ ARTIFACT:"""
         self.log(f"Received {chunk_count} chunks")
         
         # Combine chunks
-        artifact = ''.join(artifact_chunks).strip()
+        raw_artifact = ''.join(artifact_chunks)
+        
+        # Filter out [REASONING] tags and content
+        import re
+        # Remove [REASONING]...[/REASONING] blocks
+        filtered_artifact = re.sub(r'\[/?REASONING\]', '', raw_artifact)
+        # Remove any other thinking tags
+        filtered_artifact = re.sub(r'\[/?THINKING\]', '', filtered_artifact)
+        # Remove any content that looks like internal reasoning markers
+        filtered_artifact = re.sub(r'\[.*?\]', '', filtered_artifact)
+        
+        artifact = filtered_artifact.strip()
         reasoning = ''.join(reasoning_chunks).strip()
         
         # Use reasoning_content if content is empty (DeepSeek reasoning mode)
