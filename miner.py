@@ -475,7 +475,10 @@ APPROACH (follow these steps in order):
 
 Tips for solving:
 - To meet word count, pick any filler words that don't violate constraints. Stop searching once you reach the target word count.
-- Do not double check answers after verification. Assume question answers are correct after step 2."""
+- The artifact does not need to make logical sense.
+- Artifact may be case sensitive - follow constraint closely.
+- Watch for aliases — companies are referenced by multiple names throughout the document.
+- Ignore hypothetical and speculative statements (red herrings)."""
 
         self.log(f"Solving with {model}...")
         
