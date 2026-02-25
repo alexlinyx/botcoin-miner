@@ -466,18 +466,20 @@ CONSTRAINTS (you must satisfy ALL of these):
 {json.dumps(constraints, indent=2)}
 
 APPROACH (follow these steps in order):
-1. SOLVE QUESTIONS: Read the document and answer each question. Verify your answers are correct.
-2. VERIFY ANSWERS: Double-check each answer matches a valid company name from the list.
-3. CONSTRUCT ARTIFACT: Build your single-line artifact that satisfies all constraints. Include all required content from your answers.
-4. VERIFY CONSTRAINTS: Count words, check acrostic, verify arithmetic, ensure no forbidden letters, confirm casing.
+1. SOLVE QUESTIONS: Read the document and answer questions required in constraints.
+2. VERIFY ANSWERS: Verify each answer matches a valid company name from the list.
+3. CONSTRUCT ARTIFACT: Build your single-line artifact that satisfies all constraints.
+4. VERIFY CONSTRAINTS: Count words, check acrostic, verify arithmetic, ensure no forbidden letters.
 5. CLEAN ARTIFACT: Remove all punctuation. The Artifact must only contain the required content and nothing more. 
-6. OUTPUT: Your final response must be exactly one line at the end — the artifact string and nothing else.
+6. OUTPUT: Your final response must be exactly one line at the end — the artifact string.
 
 Tips for solving:
-- To meet word count, pick any filler words that don't violate constraints. Stop searching once you reach the target word count.
-- Artifact is case sensitive but does not need to make logical sense - follow constraints closely.
+- Skip questions that do not appear in constraints.
+- Pick simple filler words that don't violate constraints. Stop searching once you reach the target word count.
+- Artifact is case sensitive but does not need to make logical sense - follow all constraints.
 - Watch for aliases — companies are referenced by multiple names throughout the document.
-- Ignore hypothetical and speculative statements (red herrings)."""
+- Ignore hypothetical and speculative statements (red herrings).
+"""
 
         self.log(f"Solving with {model}...")
         
