@@ -491,9 +491,9 @@ Tips for solving:
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.0,  # Deterministic output
                 "max_tokens": MAX_TOKENS if MAX_TOKENS > 0 else 64000,  # Venice requires number
-                "stream": True,  # Enable streaming to avoid server timeout
+                "stream": True,  # API param - enable streaming response
             },
-            stream=True,  # Requests library streaming
+            stream=True,  # Library param - stream HTTP response
             timeout=LLM_TIMEOUT,  # No client timeout
         )
         
