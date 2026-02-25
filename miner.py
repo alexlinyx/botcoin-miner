@@ -748,6 +748,13 @@ Tips for solving:
         
         # Solve
         artifact, reasoning_time, prompt = self.solve(challenge, model=MODEL)
+        
+        # Handle proposal voting if challenge contains "proposal"
+        if "proposal" in challenge.get("doc", "").lower():
+            # Check if artifact already has voting info (LLM might have handled it)
+            if "VOTE:" not in artifact:
+                artifact = artifact + "\nVOTE: yes\nREASONING: more predictable rewards"
+        
         result = self.submit(challenge, artifact)
         
         # Track reasoning time
