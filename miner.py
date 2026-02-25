@@ -533,7 +533,9 @@ ARTIFACT:"""
     # ==================== SUBMIT ====================
     
     def submit(self, challenge: Dict, artifact: str) -> Dict:
-        """Submit the solution to coordinator."""
+        """Submit the solution to coordinator. Handles token expiration with re-auth and retry."""
+        
+        # First attempt
         resp = self.session.post(
             f"{COORDINATOR_URL}/v1/submit",
             headers={
@@ -547,6 +549,32 @@ ARTIFACT:"""
                 "nonce": challenge.get("_nonce")
             }
         )
+        
+        # Handle 401 token expired - re-auth and retry once
+        if resp.status_code == 401:
+            try:
+                error_data = resp.json()
+                if error_data.get("reason") == "token_expired":
+                    self.log("Token expired, re-authenticating...")
+                    self.auth()  # Refresh token
+                    
+                    # Retry with new token
+                    resp = self.session.post(
+                        f"{COORDINATOR_URL}/v1/submit",
+                        headers={
+                            "Authorization": f"Bearer {self.token}",
+                            "Content-Type": "application/json"
+                        },
+                        json={
+                            "miner": self.miner_address,
+                            "challengeId": challenge.get("challengeId"),
+                            "artifact": artifact,
+                            "nonce": challenge.get("_nonce")
+                        }
+                    )
+                    self.log(f"Submit after re-auth: {resp.status_code}")
+            except:
+                pass  # If JSON parse fails, continue to error handling
         
         # Debug: log response status
         self.log(f"Submit response status: {resp.status_code}")
