@@ -28,12 +28,12 @@ BANKR_API_KEY = os.environ.get("BANKR_API_KEY")
 VENICE_API_KEY = os.environ.get("VENICE_API_KEY")  # Venice AI API key
 USE_CLOUDSCRAPER = os.environ.get("USE_CLOUDSCRAPER", "true").lower() == "true"
 
-# Recommended models for BOTCOIN (reasoning-capable):
-#   - qwen3-235b-a22b-thinking-2507 (best reasoning, $0.45/$3.50)
-#   - kimi-k2-thinking (long context reasoning, $0.75/$3.20)
-#   - zai-org-glm-5 (frontier reasoning, $1.00/$3.20)
-#   - deepseek-v3.2 (good value, $0.40/$1.00 but verbose)
-VENICE_MODEL = os.environ.get("VENICE_MODEL", "qwen3-235b-a22b-thinking-2507")
+# Model configuration
+MAIN_MODEL = os.environ.get("MAIN_MODEL", "qwen3-235b-a22b-thinking-2507")
+BACKUP_MODEL = os.environ.get("BACKUP_MODEL", "gemini-3-1-pro-preview")
+
+# Legacy support
+VENICE_MODEL = os.environ.get("VENICE_MODEL", MAIN_MODEL)
 VENICE_BASE_URL = os.environ.get("VENICE_BASE_URL", "https://api.venice.ai/api/v1")
 
 # Self-correction settings
@@ -203,7 +203,10 @@ class BotcoinMiner:
     
     def ensure_balance(self) -> bool:
         """Skip balance check - coordinator verifies on-chain."""
-        self.log(f"Using model: {VENICE_MODEL}")
+        if BACKUP_MODEL:
+            self.log(f"Models: {MAIN_MODEL} (main) | {BACKUP_MODEL} (backup)")
+        else:
+            self.log(f"Model: {MAIN_MODEL}")
         return True
     
     # ==================== AUTH ====================
@@ -297,8 +300,11 @@ class BotcoinMiner:
     
     # ==================== SOLVE ====================
     
-    def solve(self, challenge: Dict, previous_artifact: str = None, failed_constraints: list = None) -> str:
+    def solve(self, challenge: Dict, previous_artifact: str = None, failed_constraints: list = None, model: str = None) -> str:
         """Solve the challenge using LLM with two-pass approach and self-correction."""
+        # Use provided model or default to MAIN_MODEL
+        model = model or MAIN_MODEL
+        
         doc = challenge.get("doc", "")
         questions = challenge.get("questions", [])
         constraints = challenge.get("constraints", [])
@@ -385,7 +391,7 @@ No explanation. No preamble. No JSON. Just the artifact.
 
 ARTIFACT:"""
 
-        self.log(f"Solving challenge with Venice AI...{'(RETRY)' if previous_artifact else ''}")
+        self.log(f"Solving with {model}...{'(RETRY)' if previous_artifact else ''}")
         
         # Call Venice AI API with streaming to avoid server timeout
         resp = requests.post(
@@ -395,7 +401,7 @@ ARTIFACT:"""
                 "Content-Type": "application/json"
             },
             json={
-                "model": VENICE_MODEL,
+                "model": model,
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.0,  # Deterministic output
                 "max_tokens": MAX_TOKENS if MAX_TOKENS > 0 else 64000,  # Venice requires number
@@ -428,7 +434,7 @@ ARTIFACT:"""
         streaming_log = open("streaming.log", "a")
         streaming_log.write(f"\n{'='*60}\n")
         streaming_log.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] STREAMING RESPONSE\n")
-        streaming_log.write(f"Model: {VENICE_MODEL}\n")
+        streaming_log.write(f"Model: {model}\n")
         streaming_log.write(f"{'='*60}\n")
         
         for line in resp.iter_lines():
@@ -613,17 +619,21 @@ ARTIFACT:"""
         print("=" * 50 + "\n")
     
     def mine_one(self) -> bool:
-        """Run one mining cycle with self-correction. Returns True if successful."""
+        """Run one mining cycle with main + backup model retry. Returns True if successful."""
         previous_artifact = None
         failed_constraints = None
         
-        # Get challenge once, retry with same challenge
+        # Get challenge
         challenge = self.get_challenge()
+        
+        # Try MAIN_MODEL first
+        current_model = MAIN_MODEL
+        backup_used = False
         
         for attempt in range(MAX_RETRIES):
             try:
                 # Solve (with feedback if retry)
-                artifact = self.solve(challenge, previous_artifact, failed_constraints)
+                artifact = self.solve(challenge, previous_artifact, failed_constraints, model=current_model)
                 
                 # Submit
                 result = self.submit(challenge, artifact)
@@ -635,22 +645,35 @@ ARTIFACT:"""
                     self.stats["last_solve_time"] = time.strftime('%Y-%m-%d %H:%M:%S')
                     self._save_stats()
                     return True
-                else:
-                    self.stats["fails"] += 1
-                    self._save_stats()
-                    # Extract failed constraints for next retry
-                    failed_constraints = result.get("failedConstraintIndices", [])
-                    previous_artifact = artifact
-                    
-                    # Check if we got a new challenge (nonce mismatch means old challenge is stale)
-                    if "error" in result and "nonce" in str(result.get("error", "")).lower():
-                        self.log("Challenge stale, getting new one...")
-                        challenge = self.get_challenge()
-                        previous_artifact = None
-                        failed_constraints = None
-                    
-                    self.log(f"Attempt {attempt + 1}/{MAX_RETRIES} failed. Constraints: {failed_constraints}")
-                    
+                
+                # Submission failed - check if we should try backup model
+                if not backup_used and BACKUP_MODEL:
+                    self.log(f"Main model failed, trying backup model: {BACKUP_MODEL}")
+                    backup_used = True
+                    current_model = BACKUP_MODEL
+                    previous_artifact = None  # Reset for fresh attempt with new model
+                    failed_constraints = None
+                    continue
+                
+                # Already used backup or no backup - count as fail
+                self.stats["fails"] += 1
+                self._save_stats()
+                
+                # Extract failed constraints for next retry
+                failed_constraints = result.get("failedConstraintIndices", [])
+                previous_artifact = artifact
+                
+                # Check if we got a new challenge (nonce mismatch means old challenge is stale)
+                if "error" in result and "nonce" in str(result.get("error", "")).lower():
+                    self.log("Challenge stale, getting new one...")
+                    challenge = self.get_challenge()
+                    previous_artifact = None
+                    failed_constraints = None
+                    backup_used = False  # Reset backup flag for new challenge
+                    current_model = MAIN_MODEL
+                
+                self.log(f"Attempt {attempt + 1}/{MAX_RETRIES} failed. Constraints: {failed_constraints}")
+                
             except Exception as e:
                 self.log(f"Error in attempt {attempt + 1}: {e}")
                 if attempt < MAX_RETRIES - 1:
