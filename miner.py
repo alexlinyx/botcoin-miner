@@ -30,11 +30,10 @@ VENICE_API_KEY = os.environ.get("VENICE_API_KEY")  # Venice AI API key
 USE_CLOUDSCRAPER = os.environ.get("USE_CLOUDSCRAPER", "true").lower() == "true"
 
 # Model configuration
-MAIN_MODEL = os.environ.get("MAIN_MODEL", "qwen3-235b-a22b-thinking-2507")
-BACKUP_MODEL = os.environ.get("BACKUP_MODEL", "gemini-3-1-pro-preview")
+MODEL = os.environ.get("MODEL", "qwen3-235b-a22b-thinking-2507")
 
 # Legacy support
-VENICE_MODEL = os.environ.get("VENICE_MODEL", MAIN_MODEL)
+VENICE_MODEL = os.environ.get("VENICE_MODEL", MODEL)
 VENICE_BASE_URL = os.environ.get("VENICE_BASE_URL", "https://api.venice.ai/api/v1")
 
 # Self-correction settings
@@ -203,10 +202,7 @@ class BotcoinMiner:
     
     def ensure_balance(self) -> bool:
         """Skip balance check - coordinator verifies on-chain."""
-        if BACKUP_MODEL:
-            self.log(f"Models: {MAIN_MODEL} (main) | {BACKUP_MODEL} (backup)")
-        else:
-            self.log(f"Model: {MAIN_MODEL}")
+        self.log(f"Model: {MODEL}")
         return True
     
     # ==================== AUTH ====================
@@ -406,8 +402,8 @@ class BotcoinMiner:
     
     def solve(self, challenge: Dict, previous_artifact: str = None, failed_constraints: list = None, model: str = None) -> str:
         """Solve the challenge using LLM with two-pass approach and self-correction."""
-        # Use provided model or default to MAIN_MODEL
-        model = model or MAIN_MODEL
+        # Use provided model or default to MODEL
+        model = model or MODEL
         
         doc = challenge.get("doc", "")
         questions = challenge.get("questions", [])
@@ -747,8 +743,8 @@ ARTIFACT:"""
         challenge = self.get_challenge()
         
         # Solve with main model
-        self.log(f"Solving with {MAIN_MODEL}")
-        artifact = self.solve(challenge, model=MAIN_MODEL)
+        self.log(f"Solving with {MODEL}")
+        artifact = self.solve(challenge, model=MODEL)
         result = self.submit(challenge, artifact)
         
         if result.get("pass"):
