@@ -453,22 +453,10 @@ class BotcoinMiner:
         # Build prompt
         prompt = f"""You are solving a BOTCOIN mining challenge.
 
-DOCUMENT:
-{doc}
-
-VALID COMPANY NAMES (answers must match one of these exactly):
-{json.dumps(companies, indent=2)}
-
-QUESTIONS TO ANSWER:
-{json.dumps(questions, indent=2)}
-
-CONSTRAINTS (you must satisfy ALL of these):
-{json.dumps(constraints, indent=2)}
-
 APPROACH (follow these steps in order):
 1. SOLVE QUESTIONS: Read the document and answer questions required in constraints.
 2. VERIFY ANSWERS: Verify each answer matches a valid company name from the list.
-3. CONSTRUCT ARTIFACT: Build your single-line artifact that satisfies all constraints.
+3. CONSTRUCT ARTIFACT: Build your single-line artifact that satisfies all constraints. Add filler words if necessary.
 4. VERIFY CONSTRAINTS: Count words, check acrostic, verify arithmetic, ensure no forbidden letters.
 5. CLEAN ARTIFACT: Remove all punctuation. The Artifact must only contain the required content and nothing more. 
 6. OUTPUT: Your final response must be exactly one line at the end — the artifact string.
@@ -479,6 +467,20 @@ Tips for solving:
 - Artifact is case sensitive but does not need to make logical sense - follow all constraints.
 - Watch for aliases — companies are referenced by multiple names throughout the document.
 - Ignore hypothetical and speculative statements (red herrings).
+        
+
+DOCUMENT:
+{doc}
+
+VALID COMPANY NAMES:
+{json.dumps(companies, indent=2)}
+
+QUESTIONS TO ANSWER:
+{json.dumps(questions, indent=2)}
+
+CONSTRAINTS (you must satisfy ALL of these):
+{json.dumps(constraints, indent=2)}
+
 """
 
         self.log(f"Solving with {model}...")
