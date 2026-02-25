@@ -95,6 +95,14 @@ class BotcoinMiner:
                     self.stats = json.load(f)
         except:
             pass
+        
+        # Ensure required keys exist
+        if "epochs" not in self.stats:
+            self.stats["epochs"] = {}
+        if "total_reasoning_time" not in self.stats:
+            self.stats["total_reasoning_time"] = 0
+        if "solve_count" not in self.stats:
+            self.stats["solve_count"] = 0
     
     def _save_stats(self):
         """Save stats to file."""
