@@ -618,7 +618,7 @@ ARTIFACT:"""
         print("=" * 50 + "\n")
     
     def mine_one(self) -> bool:
-        """Run one mining cycle: main model → backup model → new challenge.
+        """Run one mining cycle: main model → backup model (with failure context) → new challenge.
         Returns True if successful."""
         
         # Get challenge
@@ -636,6 +636,10 @@ ARTIFACT:"""
             self._save_stats()
             return True
         
+        # Get failure info for backup model
+        failed_constraints = result.get("failedConstraintIndices", [])
+        self.log(f"Main failed. Constraints: {failed_constraints}")
+        
         # Main failed - check if backup available
         if not BACKUP_MODEL:
             self.log("Main model failed, no backup configured")
@@ -643,9 +647,14 @@ ARTIFACT:"""
             self._save_stats()
             return False
         
-        # ============ Try BACKUP_MODEL ============
-        self.log(f"Main failed, trying BACKUP model: {BACKUP_MODEL}")
-        artifact = self.solve(challenge, previous_artifact=None, failed_constraints=None, model=BACKUP_MODEL)
+        # ============ Try BACKUP_MODEL with failure context ============
+        self.log(f"Trying BACKUP model: {BACKUP_MODEL}")
+        artifact = self.solve(
+            challenge, 
+            previous_artifact=artifact,  # Pass the failed artifact
+            failed_constraints=failed_constraints,  # Pass what failed
+            model=BACKUP_MODEL
+        )
         result = self.submit(challenge, artifact)
         
         if result.get("pass"):
