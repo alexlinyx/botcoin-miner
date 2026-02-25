@@ -491,7 +491,7 @@ Tips for solving:
                 "stream": True,  # Enable streaming to avoid server timeout
             },
             stream=True,  # Requests library streaming
-            timeout=None,  # No client timeout
+            timeout=LLM_TIMEOUT,  # No client timeout
         )
         
         # Check for errors in stream
