@@ -577,9 +577,9 @@ Tips for solving:
         artifact = filtered_artifact.strip()
         reasoning = ''.join(reasoning_chunks).strip()
         
-        # Use reasoning_content if content is empty (DeepSeek reasoning mode)
+        # Use reasoning_content if content is empty
         if not artifact and reasoning:
-            self.log("Found output in reasoning_content (DeepSeek reasoning mode)")
+            self.log("Found output in reasoning_content")
             artifact = reasoning
         
         # Log token usage
@@ -616,8 +616,7 @@ Tips for solving:
     def submit(self, challenge: Dict, artifact: str) -> Dict:
         """Submit the solution to coordinator."""
         backoff = [2, 4, 8]
-        artifact = artifact +"\\nVOTE: no\\nREASONING: more predictable rewards"
-        print(artifact)
+
         for attempt in range(len(backoff) + 1):
             resp = self.session.post(
                 f"{COORDINATOR_URL}/v1/submit",
@@ -749,11 +748,8 @@ Tips for solving:
         # Solve
         artifact, reasoning_time, prompt = self.solve(challenge, model=MODEL)
         
-        # Handle proposal voting if challenge contains "proposal"
-        if "proposal" in challenge.get("doc", "").lower():
-            # Check if artifact already has voting info (LLM might have handled it)
-            if "VOTE:" not in artifact:
-                artifact = artifact + "\nVOTE: yes\nREASONING: more predictable rewards"
+        # artifact = artifact + "\nVOTE: no\nREASONING: more predictable rewards"
+        # print(artifact)
         
         result = self.submit(challenge, artifact)
         
