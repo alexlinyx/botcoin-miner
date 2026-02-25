@@ -783,8 +783,7 @@ ARTIFACT:"""
         # Get challenge
         challenge = self.get_challenge()
         
-        # Solve with logging to failures.log
-        self.log(f"Solving with {MODEL}")
+        # Solve (logs model name internally)
         artifact = self.solve(challenge, model=MODEL, log_file="failures.log")
         result = self.submit(challenge, artifact)
         
