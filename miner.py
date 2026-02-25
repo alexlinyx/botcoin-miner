@@ -740,15 +740,15 @@ ARTIFACT:"""
         print("=" * 50 + "\n")
     
     def mine_one(self) -> bool:
-        """Run one mining cycle: main model → backup model (with failure context) → new challenge.
+        """Run one mining cycle: solve → submit → if pass:false, get new challenge.
         Returns True if successful."""
         
         # Get challenge
         challenge = self.get_challenge()
         
-        # ============ Try MAIN_MODEL first ============
-        self.log(f"Solving with MAIN model: {MAIN_MODEL}")
-        artifact = self.solve(challenge, previous_artifact=None, failed_constraints=None, model=MAIN_MODEL)
+        # Solve with main model
+        self.log(f"Solving with {MAIN_MODEL}")
+        artifact = self.solve(challenge, model=MAIN_MODEL)
         result = self.submit(challenge, artifact)
         
         if result.get("pass"):
@@ -758,36 +758,9 @@ ARTIFACT:"""
             self._save_stats()
             return True
         
-        # Get failure info for backup model
+        # Submission failed (pass: false) - get new challenge
         failed_constraints = result.get("failedConstraintIndices", [])
-        self.log(f"Main failed. Constraints: {failed_constraints}")
-        
-        # Main failed - check if backup available
-        if not BACKUP_MODEL:
-            self.log("Main model failed, no backup configured")
-            self.stats["fails"] += 1
-            self._save_stats()
-            return False
-        
-        # ============ Try BACKUP_MODEL with failure context ============
-        self.log(f"Trying BACKUP model: {BACKUP_MODEL}")
-        artifact = self.solve(
-            challenge, 
-            previous_artifact=artifact,  # Pass the failed artifact
-            failed_constraints=failed_constraints,  # Pass what failed
-            model=BACKUP_MODEL
-        )
-        result = self.submit(challenge, artifact)
-        
-        if result.get("pass"):
-            self.post_receipt(result)
-            self.stats["solves"] += 1
-            self.stats["last_solve_time"] = time.strftime('%Y-%m-%d %H:%M:%S')
-            self._save_stats()
-            return True
-        
-        # Both failed
-        self.log("Both main and backup models failed")
+        self.log(f"Failed. Constraints: {failed_constraints}")
         self.stats["fails"] += 1
         self._save_stats()
         return False
