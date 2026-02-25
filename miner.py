@@ -654,12 +654,19 @@ ARTIFACT:"""
         lines = [l.strip() for l in artifact.split('\n') if l.strip()]
         if lines:
             for line in reversed(lines):
-                if not any(line.upper().startswith(prefix) for prefix in 
-                          ['Q1:', 'Q2:', 'Q3:', 'Q4:', 'Q5:', 'Q6:', 'Q7:', 'Q8:', 'Q9:', 'Q10:',
-                           'STEP', 'ANSWER', 'ARTIFACT:', 'NOTE', 'VERIFY', 'CONSTRAINT',
-                           'PREVIOUS', 'FAILED', 'SELF-CORRECTION', 'CALCULATION', 'CALCULATIONS']):
-                    artifact = line
-                    break
+                line_upper = line.upper()
+                # Skip any line that looks like reasoning/calculation/analysis
+                skip_prefixes = [
+                    'Q1:', 'Q2:', 'Q3:', 'Q4:', 'Q5:', 'Q6:', 'Q7:', 'Q8:', 'Q9:', 'Q10:',
+                    'STEP', 'ANSWER', 'ARTIFACT:', 'NOTE', 'VERIFY', 'CONSTRAINT',
+                    'PREVIOUS', 'FAILED', 'SELF-CORRECTION', 'CALCULATION', 'CALCULATIONS',
+                    'ANALYSIS', 'REASONING', 'EXPLANATION', 'SOLUTION', 'FINAL'
+                ]
+                if any(line_upper.startswith(prefix) for prefix in skip_prefixes):
+                    continue
+                # This is likely the artifact
+                artifact = line
+                break
         
         self.log(f"Artifact ({len(artifact.split())} words): {artifact[:100]}...")
         
