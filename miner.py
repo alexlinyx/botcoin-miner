@@ -37,7 +37,6 @@ VENICE_MODEL = os.environ.get("VENICE_MODEL", MAIN_MODEL)
 VENICE_BASE_URL = os.environ.get("VENICE_BASE_URL", "https://api.venice.ai/api/v1")
 
 # Self-correction settings
-MAX_RETRIES = int(os.environ.get("MAX_RETRIES", "5"))  # Retries per challenge before getting new one
 MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "0"))  # 0 = unlimited
 LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "0"))  # 0 = no timeout
 
@@ -619,68 +618,47 @@ ARTIFACT:"""
         print("=" * 50 + "\n")
     
     def mine_one(self) -> bool:
-        """Run one mining cycle with main + backup model retry. Returns True if successful."""
-        previous_artifact = None
-        failed_constraints = None
+        """Run one mining cycle: main model → backup model → new challenge.
+        Returns True if successful."""
         
         # Get challenge
         challenge = self.get_challenge()
         
-        # Try MAIN_MODEL first
-        current_model = MAIN_MODEL
-        backup_used = False
+        # ============ Try MAIN_MODEL first ============
+        self.log(f"Solving with MAIN model: {MAIN_MODEL}")
+        artifact = self.solve(challenge, previous_artifact=None, failed_constraints=None, model=MAIN_MODEL)
+        result = self.submit(challenge, artifact)
         
-        for attempt in range(MAX_RETRIES):
-            try:
-                # Solve (with feedback if retry)
-                artifact = self.solve(challenge, previous_artifact, failed_constraints, model=current_model)
-                
-                # Submit
-                result = self.submit(challenge, artifact)
-                
-                if result.get("pass"):
-                    # Post on-chain
-                    self.post_receipt(result)
-                    self.stats["solves"] += 1
-                    self.stats["last_solve_time"] = time.strftime('%Y-%m-%d %H:%M:%S')
-                    self._save_stats()
-                    return True
-                
-                # Submission failed - check if we should try backup model
-                if not backup_used and BACKUP_MODEL:
-                    self.log(f"Main model failed, trying backup model: {BACKUP_MODEL}")
-                    backup_used = True
-                    current_model = BACKUP_MODEL
-                    previous_artifact = None  # Reset for fresh attempt with new model
-                    failed_constraints = None
-                    continue
-                
-                # Already used backup or no backup - count as fail
-                self.stats["fails"] += 1
-                self._save_stats()
-                
-                # Extract failed constraints for next retry
-                failed_constraints = result.get("failedConstraintIndices", [])
-                previous_artifact = artifact
-                
-                # Check if we got a new challenge (nonce mismatch means old challenge is stale)
-                if "error" in result and "nonce" in str(result.get("error", "")).lower():
-                    self.log("Challenge stale, getting new one...")
-                    challenge = self.get_challenge()
-                    previous_artifact = None
-                    failed_constraints = None
-                    backup_used = False  # Reset backup flag for new challenge
-                    current_model = MAIN_MODEL
-                
-                self.log(f"Attempt {attempt + 1}/{MAX_RETRIES} failed. Constraints: {failed_constraints}")
-                
-            except Exception as e:
-                self.log(f"Error in attempt {attempt + 1}: {e}")
-                if attempt < MAX_RETRIES - 1:
-                    self.log("Retrying...")
-                    time.sleep(2)
+        if result.get("pass"):
+            self.post_receipt(result)
+            self.stats["solves"] += 1
+            self.stats["last_solve_time"] = time.strftime('%Y-%m-%d %H:%M:%S')
+            self._save_stats()
+            return True
         
-        self.log(f"Failed after {MAX_RETRIES} attempts, getting new challenge...")
+        # Main failed - check if backup available
+        if not BACKUP_MODEL:
+            self.log("Main model failed, no backup configured")
+            self.stats["fails"] += 1
+            self._save_stats()
+            return False
+        
+        # ============ Try BACKUP_MODEL ============
+        self.log(f"Main failed, trying BACKUP model: {BACKUP_MODEL}")
+        artifact = self.solve(challenge, previous_artifact=None, failed_constraints=None, model=BACKUP_MODEL)
+        result = self.submit(challenge, artifact)
+        
+        if result.get("pass"):
+            self.post_receipt(result)
+            self.stats["solves"] += 1
+            self.stats["last_solve_time"] = time.strftime('%Y-%m-%d %H:%M:%S')
+            self._save_stats()
+            return True
+        
+        # Both failed
+        self.log("Both main and backup models failed")
+        self.stats["fails"] += 1
+        self._save_stats()
         return False
     
     def run(self):
