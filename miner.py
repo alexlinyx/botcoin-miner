@@ -337,13 +337,14 @@ class BotcoinMiner:
         
         return None
     
-    def _log_failure(self, challenge: Dict, artifact: str, prompt: str, reasoning_time: float):
+    def _log_failure(self, challenge: Dict, artifact: str, prompt: str, reasoning_time: float, failed_constraints: list):
         """Log failed submission to failures.log"""
         try:
             with open("failures.log", "a") as f:
                 f.write(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] FAILED\n")
                 f.write(f"Model: {MODEL} | Epoch: {challenge.get('epochId')}\n")
                 f.write(f"Reasoning time: {reasoning_time:.2f}s\n")
+                f.write(f"Failed constraints: {failed_constraints}\n")
                 f.write(f"\n--- PROMPT ---\n")
                 f.write(prompt + "\n")
                 f.write(f"\n--- SUBMISSION (JSON) ---\n")
@@ -754,7 +755,8 @@ Tips for solving:
         
         # Only log to failures.log if submit failed
         if not result.get("pass"):
-            self._log_failure(challenge, artifact, prompt, reasoning_time)
+            failed_constraints = result.get("failedConstraintIndices", [])
+            self._log_failure(challenge, artifact, prompt, reasoning_time, failed_constraints)
         
         # Get epoch info
         epoch_id = challenge.get("epochId", "unknown")
