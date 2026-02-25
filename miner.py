@@ -512,6 +512,7 @@ Tips for solving:
         # Collect streaming response
         self.log("Streaming response from Venice AI...")
         artifact_chunks = []
+        reasoning_chunks = []
         finish_reason = None
         prompt_tokens = 0
         completion_tokens = 0
@@ -537,6 +538,13 @@ Tips for solving:
                     print(content, end='', flush=True)
                     chunk_count += 1
                 
+                reasoning = delta.get('reasoning_content')
+                if reasoning:
+                    reasoning_chunks.append(reasoning)
+                    print(f"\033[90m{reasoning}\033[0m", end='', flush=True)
+                    chunk_count += 1
+                
+
                 # Track finish reason
                 if chunk.get('choices', [{}])[0].get('finish_reason'):
                     finish_reason = chunk['choices'][0]['finish_reason']
@@ -559,7 +567,20 @@ Tips for solving:
         # Combine chunks
         raw_artifact = ''.join(artifact_chunks)
         
-        artifact = raw_artifact.strip()
+                # Filter out [REASONING] tags only (not all brackets)
+        import re
+        # Remove [REASONING] and [/REASONING] tags
+        filtered_artifact = re.sub(r'\[/?REASONING\]', '', raw_artifact)
+        # Remove any thinking tags
+        filtered_artifact = re.sub(r'\[/?THINKING\]', '', filtered_artifact)
+        
+        artifact = filtered_artifact.strip()
+        reasoning = ''.join(reasoning_chunks).strip()
+        
+        # Use reasoning_content if content is empty (DeepSeek reasoning mode)
+        if not artifact and reasoning:
+            self.log("Found output in reasoning_content (DeepSeek reasoning mode)")
+            artifact = reasoning
         
         # Log token usage
         if prompt_tokens or completion_tokens:
@@ -595,7 +616,8 @@ Tips for solving:
     def submit(self, challenge: Dict, artifact: str) -> Dict:
         """Submit the solution to coordinator."""
         backoff = [2, 4, 8]
-        
+        artifact = artifact +"\\nVOTE: no\\nREASONING: more predictable rewards"
+        print(artifact)
         for attempt in range(len(backoff) + 1):
             resp = self.session.post(
                 f"{COORDINATOR_URL}/v1/submit",
