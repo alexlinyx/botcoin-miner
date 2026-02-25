@@ -401,7 +401,7 @@ class BotcoinMiner:
     
     # ==================== SOLVE ====================
     
-    def solve(self, challenge: Dict, previous_artifact: str = None, failed_constraints: list = None, model: str = None, log_file: str = None) -> str:
+    def solve(self, challenge: Dict, previous_artifact: str = None, failed_constraints: list = None, model: str = None, log_file: str = None) -> tuple:
         """Solve the challenge using LLM.
         
         Args:
@@ -410,7 +410,12 @@ class BotcoinMiner:
             failed_constraints: List of failed constraint indices
             model: Model to use (defaults to MODEL)
             log_file: If provided, stream output to this file
+            
+        Returns:
+            tuple: (artifact: str, reasoning_time: float)
         """
+        solve_start_time = time.time()
+        
         # Use provided model or default to MODEL
         model = model or MODEL
         
@@ -659,7 +664,11 @@ ARTIFACT:"""
                     break
         
         self.log(f"Artifact ({len(artifact.split())} words): {artifact[:100]}...")
-        return artifact
+        
+        reasoning_time = time.time() - solve_start_time
+        self.log(f"Reasoning time: {reasoning_time:.2f}s")
+        
+        return artifact, reasoning_time
     
     # ==================== SUBMIT ====================
     
@@ -780,6 +789,11 @@ ARTIFACT:"""
         
         print(f"Last Solve: {self.stats.get('last_solve_time', 'N/A')}")
         
+        # Reasoning time stats
+        if self.stats.get("solve_count", 0) > 0:
+            avg_reasoning = self.stats["total_reasoning_time"] / self.stats["solve_count"]
+            print(f"Avg Reasoning Time: {avg_reasoning:.2f}s")
+        
         # Epoch-level stats
         if self.stats.get("epochs"):
             print("\n📅 EPOCH STATS")
@@ -801,8 +815,16 @@ ARTIFACT:"""
         challenge = self.get_challenge()
         
         # Solve (logs model name internally)
-        artifact = self.solve(challenge, model=MODEL, log_file="failures.log")
+        artifact, reasoning_time = self.solve(challenge, model=MODEL, log_file="failures.log")
         result = self.submit(challenge, artifact)
+        
+        # Track reasoning time
+        if "total_reasoning_time" not in self.stats:
+            self.stats["total_reasoning_time"] = 0
+            self.stats["solve_count"] = 0
+        self.stats["total_reasoning_time"] += reasoning_time
+        self.stats["solve_count"] += 1
+        avg_time = self.stats["total_reasoning_time"] / self.stats["solve_count"]
         
         # Get epoch info
         epoch_id = challenge.get("epochId", "unknown")
