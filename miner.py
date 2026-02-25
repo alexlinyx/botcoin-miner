@@ -429,21 +429,32 @@ class BotcoinMiner:
         questions = challenge.get("questions", [])
         companies = challenge.get("companies", [])
         
-        # Simple prompt - no constraints
+        # Get constraints from challenge
+        constraints = challenge.get("constraints", [])
+        
+        # Build prompt
         prompt = f"""You are solving a BOTCOIN mining challenge.
 
 DOCUMENT:
 {doc}
 
-VALID COMPANY NAMES (answers must match exactly):
+VALID COMPANY NAMES (answers must match one of these exactly):
 {json.dumps(companies, indent=2)}
 
 QUESTIONS TO ANSWER:
 {json.dumps(questions, indent=2)}
 
-OUTPUT FORMAT:
-First show your reasoning (brief), then output ONLY the artifact on its own line:
-ARTIFACT: [your single-line answer]"""
+CONSTRAINTS (you must satisfy ALL of these):
+{json.dumps(constraints, indent=2)}
+
+Tips for solving:
+- Questions require multi-hop reasoning (e.g., "which company had the highest total annual revenue?")
+- Watch for aliases — companies are referenced by multiple names throughout the document
+- The companies array in the response lists all valid company names — answers must match one of these exactly
+- Ignore hypothetical and speculative statements (red herrings)
+- You must satisfy every constraint to pass (deterministic verification; no AI grading)
+
+Your response must be exactly one line — the artifact string and nothing else. Do NOT output "Q1:", "Looking at", "Let me", "First", "Answer:", or any reasoning. Do NOT explain your process. Output ONLY the single-line artifact that satisfies all constraints. No preamble. No JSON. Just the artifact."""
 
         self.log(f"Solving with {model}...")
         
