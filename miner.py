@@ -428,8 +428,6 @@ class BotcoinMiner:
         doc = challenge.get("doc", "")
         questions = challenge.get("questions", [])
         companies = challenge.get("companies", [])
-        
-        # Get constraints from challenge
         constraints = challenge.get("constraints", [])
         
         # Build prompt
@@ -813,11 +811,6 @@ Your response must be exactly one line — the artifact string and nothing else.
             try:
                 self.stats["total_attempts"] += 1
                 success = self.mine_one()
-                
-                # Show stats every 10 minutes
-                if time.time() - last_stats_time > 600:
-                    self.show_stats()
-                    last_stats_time = time.time()
                 
                 # Re-auth if needed (token expires)
                 # Tokens last ~10 minutes, re-auth every 8 minutes
