@@ -499,14 +499,10 @@ Your response must be exactly one line — the artifact string and nothing else.
         log_fp = None
         if log_file:
             log_fp = open(log_file, "a")
-            log_fp.write(f"\n{'='*60}\n")
-            log_fp.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] FAILED CHALLENGE\n")
-            log_fp.write(f"Model: {model}\n")
-            log_fp.write(f"Epoch: {challenge.get('epochId')}\n")
-            log_fp.write(f"{'='*60}\n")
-            log_fp.write(f"--- PROMPT ---\n")
+            log_fp.write(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] FAILED\n")
+            log_fp.write(f"Model: {model} | Epoch: {challenge.get('epochId')}\n")
+            log_fp.write(f"\n--- PROMPT ---\n")
             log_fp.write(prompt + "\n")
-            log_fp.write(f"{'='*60}\n")
         
         for line in resp.iter_lines():
             if not line:
@@ -571,10 +567,10 @@ Your response must be exactly one line — the artifact string and nothing else.
             self.log("Found output in reasoning_content (DeepSeek reasoning mode)")
             artifact = reasoning
         
-        # Save to log file
+        # Save to log file - prompt and raw response
         if log_fp:
             log_fp.write(f"--- RESPONSE ---\n")
-            log_fp.write(f"Artifact: {artifact}\n")
+            log_fp.write(raw_artifact + "\n")
             log_fp.write(f"Tokens: {prompt_tokens}+{completion_tokens}\n")
             log_fp.close()
         
