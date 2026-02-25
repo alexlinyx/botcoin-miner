@@ -612,14 +612,12 @@ ARTIFACT:"""
         # Combine chunks
         raw_artifact = ''.join(artifact_chunks)
         
-        # Filter out [REASONING] tags and content
+        # Filter out [REASONING] tags only (not all brackets)
         import re
-        # Remove [REASONING]...[/REASONING] blocks
+        # Remove [REASONING] and [/REASONING] tags
         filtered_artifact = re.sub(r'\[/?REASONING\]', '', raw_artifact)
-        # Remove any other thinking tags
+        # Remove any thinking tags
         filtered_artifact = re.sub(r'\[/?THINKING\]', '', filtered_artifact)
-        # Remove any content that looks like internal reasoning markers
-        filtered_artifact = re.sub(r'\[.*?\]', '', filtered_artifact)
         
         artifact = filtered_artifact.strip()
         reasoning = ''.join(reasoning_chunks).strip()
@@ -659,7 +657,7 @@ ARTIFACT:"""
                 if not any(line.upper().startswith(prefix) for prefix in 
                           ['Q1:', 'Q2:', 'Q3:', 'Q4:', 'Q5:', 'Q6:', 'Q7:', 'Q8:', 'Q9:', 'Q10:',
                            'STEP', 'ANSWER', 'ARTIFACT:', 'NOTE', 'VERIFY', 'CONSTRAINT',
-                           'PREVIOUS', 'FAILED', 'SELF-CORRECTION']):
+                           'PREVIOUS', 'FAILED', 'SELF-CORRECTION', 'CALCULATION', 'CALCULATIONS']):
                     artifact = line
                     break
         
