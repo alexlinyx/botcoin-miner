@@ -595,28 +595,12 @@ Your response must be exactly one line — the artifact string and nothing else.
         if not artifact:
             raise Exception(f"Empty artifact from Venice AI: {result}")
         
-        # Extract just the last line if model included reasoning
+        # Since prompt instructs model to output ONLY one line, just take the last non-empty line
         lines = [l.strip() for l in artifact.split('\n') if l.strip()]
         if lines:
-            for line in reversed(lines):
-                line_upper = line.upper()
-                # Skip any line that looks like reasoning/calculation/analysis
-                skip_prefixes = [
-                    'Q1:', 'Q2:', 'Q3:', 'Q4:', 'Q5:', 'Q6:', 'Q7:', 'Q8:', 'Q9:', 'Q10:',
-                    'STEP', 'ANSWER', 'ARTIFACT:', 'NOTE', 'VERIFY', 'CONSTRAINT',
-                    'PREVIOUS', 'FAILED', 'SELF-CORRECTION', 'CALCULATION', 'CALCULATIONS',
-                    'ANALYSIS', 'REASONING', 'EXPLANATION', 'SOLUTION', 'FINAL'
-                ]
-                if any(line_upper.startswith(prefix) for prefix in skip_prefixes):
-                    continue
-                # This is likely the artifact
-                artifact = line
-                break
+            artifact = lines[-1]  # Take last line
         
         self.log(f"Artifact ({len(artifact.split())} words): {artifact}")
-        
-        reasoning_time = time.time() - solve_start_time
-        self.log(f"Reasoning time: {reasoning_time:.2f}s")
         
         reasoning_time = time.time() - solve_start_time
         self.log(f"Reasoning time: {reasoning_time:.2f}s")
