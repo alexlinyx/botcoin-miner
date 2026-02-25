@@ -400,8 +400,16 @@ class BotcoinMiner:
     
     # ==================== SOLVE ====================
     
-    def solve(self, challenge: Dict, previous_artifact: str = None, failed_constraints: list = None, model: str = None) -> str:
-        """Solve the challenge using LLM with two-pass approach and self-correction."""
+    def solve(self, challenge: Dict, previous_artifact: str = None, failed_constraints: list = None, model: str = None, log_file: str = None) -> str:
+        """Solve the challenge using LLM.
+        
+        Args:
+            challenge: Challenge dict
+            previous_artifact: Previous failed artifact (for retry context)
+            failed_constraints: List of failed constraint indices
+            model: Model to use (defaults to MODEL)
+            log_file: If provided, stream output to this file
+        """
         # Use provided model or default to MODEL
         model = model or MODEL
         
@@ -530,6 +538,16 @@ ARTIFACT:"""
         completion_tokens = 0
         chunk_count = 0
         
+        # Open log file if provided
+        log_fp = None
+        if log_file:
+            log_fp = open(log_file, "a")
+            log_fp.write(f"\n{'='*60}\n")
+            log_fp.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] FAILED CHALLENGE\n")
+            log_fp.write(f"Model: {model}\n")
+            log_fp.write(f"Constraints: {challenge.get('constraints', [])}\n")
+            log_fp.write(f"{'='*60}\n\n")
+        
         for line in resp.iter_lines():
             if not line:
                 continue
@@ -548,12 +566,16 @@ ARTIFACT:"""
                 if content:
                     artifact_chunks.append(content)
                     print(content, end='', flush=True)
+                    if log_fp:
+                        log_fp.write(content)
                     chunk_count += 1
                 
                 reasoning = delta.get('reasoning_content')
                 if reasoning:
                     reasoning_chunks.append(reasoning)
                     print(f"\033[90m{reasoning}\033[0m", end='', flush=True)
+                    if log_fp:
+                        log_fp.write(f"[REASONING] {reasoning}")
                     chunk_count += 1
                 
                 # Track finish reason
@@ -583,6 +605,12 @@ ARTIFACT:"""
         if not artifact and reasoning:
             self.log("Found output in reasoning_content (DeepSeek reasoning mode)")
             artifact = reasoning
+        
+        # Close log file and write artifact
+        if log_fp:
+            log_fp.write(f"\n\nARTIFACT: {artifact}\n")
+            log_fp.write(f"[TOKENS: {prompt_tokens}+{completion_tokens}]\n")
+            log_fp.close()
         
         # Log token usage
         if prompt_tokens or completion_tokens:
@@ -742,9 +770,9 @@ ARTIFACT:"""
         # Get challenge
         challenge = self.get_challenge()
         
-        # Solve with main model
+        # Solve with logging to failures.log
         self.log(f"Solving with {MODEL}")
-        artifact = self.solve(challenge, model=MODEL)
+        artifact = self.solve(challenge, model=MODEL, log_file="failures.log")
         result = self.submit(challenge, artifact)
         
         if result.get("pass"):
