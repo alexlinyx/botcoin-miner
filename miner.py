@@ -56,7 +56,8 @@ class BotcoinMiner:
             "fails": 0,
             "total_attempts": 0,
             "start_time": None,
-            "last_solve_time": None
+            "last_solve_time": None,
+            "epochs": {}  # {"epoch_id": {"solves": 0, "fails": 0, "credits": 0}}
         }
         self.stats_file = "mining_stats.json"
         self._load_stats()
@@ -761,6 +762,18 @@ ARTIFACT:"""
             print(f"Solves/Hour: {solves_per_hour:.2f}")
         
         print(f"Last Solve: {self.stats.get('last_solve_time', 'N/A')}")
+        
+        # Epoch-level stats
+        if self.stats.get("epochs"):
+            print("\n📅 EPOCH STATS")
+            print("-" * 30)
+            total_credits = 0
+            for epoch_id in sorted(self.stats["epochs"].keys(), key=lambda x: int(x) if x.isdigit() else 0):
+                e = self.stats["epochs"][epoch_id]
+                print(f"Epoch {epoch_id}: {e['solves']} solves, {e['fails']} fails, {e['credits']} credits")
+                total_credits += e['credits']
+            print(f"Total Credits: {total_credits}")
+        
         print("=" * 50 + "\n")
     
     def mine_one(self) -> bool:
@@ -775,9 +788,19 @@ ARTIFACT:"""
         artifact = self.solve(challenge, model=MODEL, log_file="failures.log")
         result = self.submit(challenge, artifact)
         
+        # Get epoch info
+        epoch_id = challenge.get("epochId", "unknown")
+        credits_earned = result.get("creditsPerSolve", 0)
+        
+        # Initialize epoch if needed
+        if epoch_id not in self.stats["epochs"]:
+            self.stats["epochs"][epoch_id] = {"solves": 0, "fails": 0, "credits": 0}
+        
         if result.get("pass"):
             self.post_receipt(result)
             self.stats["solves"] += 1
+            self.stats["epochs"][epoch_id]["solves"] += 1
+            self.stats["epochs"][epoch_id]["credits"] += credits_earned
             self.stats["last_solve_time"] = time.strftime('%Y-%m-%d %H:%M:%S')
             self._save_stats()
             return True
@@ -786,6 +809,7 @@ ARTIFACT:"""
         failed_constraints = result.get("failedConstraintIndices", [])
         self.log(f"Failed. Constraints: {failed_constraints}")
         self.stats["fails"] += 1
+        self.stats["epochs"][epoch_id]["fails"] += 1
         self._save_stats()
         return False
     
