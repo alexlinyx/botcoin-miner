@@ -567,13 +567,6 @@ Your response must be exactly one line — the artifact string and nothing else.
             self.log("Found output in reasoning_content (DeepSeek reasoning mode)")
             artifact = reasoning
         
-        # Save to log file - prompt and raw response
-        if log_fp:
-            log_fp.write(f"--- RESPONSE ---\n")
-            log_fp.write(raw_artifact + "\n")
-            log_fp.write(f"Tokens: {prompt_tokens}+{completion_tokens}\n")
-            log_fp.close()
-        
         # Log token usage
         if prompt_tokens or completion_tokens:
             self.log(f"Token usage: {prompt_tokens} prompt + {completion_tokens} completion = {prompt_tokens + completion_tokens} total")
@@ -597,6 +590,13 @@ Your response must be exactly one line — the artifact string and nothing else.
             artifact = lines[-1]  # Take last line
         
         self.log(f"Artifact ({len(artifact.split())} words): {artifact}")
+        
+        # Save submission to log file
+        if log_fp:
+            log_fp.write(f"--- SUBMISSION ---\n")
+            log_fp.write(artifact + "\n")
+            log_fp.write(f"Tokens: {prompt_tokens}+{completion_tokens}\n")
+            log_fp.close()
         
         reasoning_time = time.time() - solve_start_time
         self.log(f"Reasoning time: {reasoning_time:.2f}s")
