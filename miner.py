@@ -451,34 +451,37 @@ class BotcoinMiner:
         constraints = challenge.get("constraints", [])
         
         # Build prompt
-        prompt = f"""You are solving a BOTCOIN mining challenge.
+        prompt = f"""You are solving a BOTCOIN mining challenge. Your goal is to construct an artifact string that satisfies all constraints.
 
 APPROACH (follow these steps in order):
-1. SOLVE QUESTIONS: Read the document and answer questions required in constraints.
-2. CONSTRUCT ARTIFACT: Build your single-line artifact that satisfies all constraints. Add filler words if necessary.
-3. VERIFY CONSTRAINTS: Count words, check acrostic, verify arithmetic, ensure no forbidden letters.
-4. CLEAN ARTIFACT: Remove all punctuation. The artifact string must contain only the required content and nothing more. 
-5. OUTPUT: Your final response must be exactly one line at the end — the artifact string.
+1. READ CONSTRAINTS: Make a list of questions that appear in CONSTRAINTS.
+2. READ DOCUMENT: Answer the necessary questions. Skip the others.
+3. BUILD ARTIFACT: Only use words from DOCUMENT. Build acrostic. Add names, locations, numbers, equation. Fill the rest with single-letter words.
+4. VERIFY ANSWERS: Confirm question answers appear in COMPANIES.
+5. VERIFY CONSTRAINTS: Remove punctuation and forbidden letters. Count words, check acrostic, verify arithmetic.
+6. OUTPUT ARTIFACT: Your final response must be exactly one line at the end — the artifact string.
 
 TIPS (read before solving):
-- Skip questions that do not appear in constraints.
-- Document is fictional. Do not use assumptions about the real world to solve questions.
-- Pick simple single-letter filler words that don't violate constraints.
+- Document is in a fictional setting. Do not use assumptions about the real world to solve questions.
+- Words can be single-letter. Words can be fake. Words can repeat.
+- nextPrime(n) is greater than or equal to n.
+- Every letter in acrostic must be uppercased.
 - Arthmetic must be exact. Verify calculations are correct.
-- Artifact does not need to make logical sense.
+- Answers must be in COMPANIES but do not need to satisfy CONSTRAINTS.
+- Artifact string does not need to make logical sense, but must satisfy CONSTRAINTS.
 
-
-DOCUMENT:
-{doc}
-
-VALID COMPANY NAMES:
-{json.dumps(companies, indent=2)}
-
-QUESTIONS TO ANSWER:
-{json.dumps(questions, indent=2)}
 
 CONSTRAINTS (you must satisfy ALL of these):
 {json.dumps(constraints, indent=2)}
+
+QUESTIONS:
+{json.dumps(questions, indent=2)}
+
+COMPANIES:
+{json.dumps(companies, indent=2)}
+
+DOCUMENT:
+{doc}
 
 """
 
