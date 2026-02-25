@@ -7,6 +7,7 @@ Requires BANKR_API_KEY for wallet operations and on-chain transactions.
 import os
 import json
 import time
+import random
 import hashlib
 import requests
 from typing import Optional, Dict, Any
@@ -211,72 +212,176 @@ class BotcoinMiner:
     # ==================== AUTH ====================
     
     def auth(self) -> str:
-        """Authenticate with coordinator and get bearer token."""
+        """Authenticate with coordinator and get bearer token.
+        Handles errors per spec:
+        - nonce: 429/5xx retry, other 4xx fail
+        - verify: 429 retry w/ backoff (max 3), then sleep 60-120s, 5xx retry, 401 re-sign, 403 stop
+        """
         self.log("Authenticating with coordinator...")
         
-        # Step 1: Get nonce
-        resp = self.session.post(
-            f"{COORDINATOR_URL}/v1/auth/nonce",
-            json={"miner": self.miner_address}
-        )
+        # Track verify attempts for backoff
+        verify_attempts = 0
+        max_verify_attempts = 3
         
-        if resp.status_code != 200:
-            self.log(f"Nonce error: {resp.text[:500]}")
-            raise Exception(f"Nonce request failed: {resp.status_code}")
+        while True:
+            # Step 1: Get nonce
+            nonce_resp = self._auth_get_nonce()
+            if not nonce_resp:
+                raise Exception("Failed to get nonce after retries")
+            
+            nonce_data = nonce_resp.json()
+            message = nonce_data.get("message", "")
+            if not message:
+                raise Exception(f"Failed to get nonce: {nonce_data}")
+            
+            # Step 2: Sign message
+            signature = self.bankr_sign(message)
+            
+            # Step 3: Verify with retry logic
+            verify_attempts += 1
+            token = self._auth_verify(message, signature, verify_attempts, max_verify_attempts)
+            
+            if token:
+                self.token = token
+                self.log("Authenticated successfully")
+                return self.token
+            
+            # If verify failed with retryable error and we haven't exhausted attempts, loop will continue
+            # If 403, it will raise exception and stop
+    
+    def _auth_get_nonce(self) -> Optional[requests.Response]:
+        """Get nonce with retry on 429/5xx."""
+        backoff = [2, 4, 8]
         
-        nonce_data = resp.json()
-        message = nonce_data.get("message", "")
+        for attempt in range(len(backoff) + 1):
+            resp = self.session.post(
+                f"{COORDINATOR_URL}/v1/auth/nonce",
+                json={"miner": self.miner_address}
+            )
+            
+            if resp.status_code == 200:
+                return resp
+            
+            if resp.status_code in (429,) or 500 <= resp.status_code < 600:
+                if attempt < len(backoff):
+                    wait = backoff[attempt]
+                    self.log(f"Nonce {resp.status_code}, retry in {wait}s")
+                    time.sleep(wait)
+                    continue
+            
+            # Other 4xx - fail
+            self.log(f"Nonce error: {resp.status_code} {resp.text[:200]}")
+            raise Exception(f"Nonce failed: {resp.status_code}")
         
-        if not message:
-            raise Exception(f"Failed to get nonce: {nonce_data}")
+        return None
+    
+    def _auth_verify(self, message: str, signature: str, attempt_num: int, max_attempts: int) -> Optional[str]:
+        """Verify and get token with full error handling."""
+        backoff = [2, 4, 8]
         
-        # Step 2: Sign message
-        signature = self.bankr_sign(message)
+        for attempt in range(len(backoff) + 1):
+            resp = self.session.post(
+                f"{COORDINATOR_URL}/v1/auth/verify",
+                json={
+                    "miner": self.miner_address,
+                    "message": message,
+                    "signature": signature
+                }
+            )
+            
+            if resp.status_code == 200:
+                data = resp.json()
+                token = data.get("token")
+                if token:
+                    return token
+                raise Exception(f"Verify succeeded but no token: {data}")
+            
+            # Handle specific error codes
+            if resp.status_code == 429:
+                if attempt < len(backoff):
+                    wait = backoff[attempt]
+                    self.log(f"Verify 429, retry in {wait}s (attempt {attempt + 1})")
+                    time.sleep(wait)
+                    continue
+                elif attempt_num < max_attempts:
+                    # Max 429s - sleep 60-120s then retry whole auth
+                    sleep_time = random.randint(60, 120)
+                    self.log(f"Verify still 429 after retries, sleeping {sleep_time}s and retrying auth")
+                    time.sleep(sleep_time)
+                    return None  # Trigger retry of full auth
+            
+            if resp.status_code == 401:
+                # Token expired - need fresh nonce and re-sign
+                self.log("Verify 401, re-signing...")
+                return None  # Will trigger new nonce in main auth loop
+            
+            if resp.status_code == 403:
+                self.log(f"Verify 403 - insufficient balance: {resp.text[:200]}")
+                raise Exception(f"Insufficient BOTCOIN balance to mine")
+            
+            if 500 <= resp.status_code < 600:
+                if attempt < len(backoff):
+                    wait = backoff[attempt]
+                    self.log(f"Verify {resp.status_code}, retry in {wait}s")
+                    time.sleep(wait)
+                    continue
+            
+            # Other errors
+            self.log(f"Verify error: {resp.status_code} {resp.text[:200]}")
+            raise Exception(f"Verify failed: {resp.status_code}")
         
-        # Step 3: Verify and get token
-        resp = self.session.post(
-            f"{COORDINATOR_URL}/v1/auth/verify",
-            json={
-                "miner": self.miner_address,
-                "message": message,
-                "signature": signature
-            }
-        )
-        
-        if resp.status_code != 200:
-            self.log(f"Verify error: {resp.text[:500]}")
-            raise Exception(f"Verify request failed: {resp.status_code}")
-        
-        verify_data = resp.json()
-        self.token = verify_data.get("token")
-        
-        if not self.token:
-            raise Exception(f"Failed to verify: {verify_data}")
-        
-        self.log(f"Authenticated successfully")
-        
-        return self.token
+        return None
     
     # ==================== CHALLENGE ====================
     
     def get_challenge(self) -> Dict:
-        """Request a new challenge."""
+        """Request a new challenge.
+        Handles errors per spec:
+        - 429/5xx: retry
+        - 401: re-auth then retry
+        - 403: stop (insufficient balance)
+        """
         import secrets
-        nonce = secrets.token_hex(16)
+        backoff = [2, 4, 8, 16, 30]
         
-        resp = self.session.get(
-            f"{COORDINATOR_URL}/v1/challenge",
-            params={"miner": self.miner_address, "nonce": nonce},
-            headers={"Authorization": f"Bearer {self.token}"}
-        )
-        
-        # Debug: log raw response
-        self.log(f"Challenge response status: {resp.status_code}")
-        
-        # Handle non-200 responses
-        if resp.status_code != 200:
-            self.log(f"Challenge error response: {resp.text[:500]}")
-            raise Exception(f"Challenge request failed with status {resp.status_code}: {resp.text[:200]}")
+        for attempt in range(len(backoff) + 1):
+            nonce = secrets.token_hex(16)
+            
+            resp = self.session.get(
+                f"{COORDINATOR_URL}/v1/challenge",
+                params={"miner": self.miner_address, "nonce": nonce},
+                headers={"Authorization": f"Bearer {self.token}"}
+            )
+            
+            self.log(f"Challenge response status: {resp.status_code}")
+            
+            if resp.status_code == 200:
+                break
+            
+            if resp.status_code == 401:
+                try:
+                    error_data = resp.json()
+                    if error_data.get("reason") == "token_expired":
+                        self.log("Challenge 401, re-authenticating...")
+                        self.auth()
+                        continue  # Retry with new token
+                except:
+                    pass
+            
+            if resp.status_code == 403:
+                self.log(f"Challenge 403 - insufficient balance: {resp.text[:200]}")
+                raise Exception(f"Insufficient BOTCOIN balance to mine")
+            
+            if resp.status_code in (429,) or 500 <= resp.status_code < 600:
+                if attempt < len(backoff):
+                    wait = backoff[attempt]
+                    self.log(f"Challenge {resp.status_code}, retry in {wait}s")
+                    time.sleep(wait)
+                    continue
+            
+            # Other errors
+            self.log(f"Challenge error: {resp.status_code} {resp.text[:200]}")
+            raise Exception(f"Challenge failed: {resp.status_code}")
         
         # Handle empty response
         if not resp.text.strip():
@@ -533,56 +638,61 @@ ARTIFACT:"""
     # ==================== SUBMIT ====================
     
     def submit(self, challenge: Dict, artifact: str) -> Dict:
-        """Submit the solution to coordinator. Handles token expiration with re-auth and retry."""
+        """Submit the solution to coordinator.
+        Handles errors per spec:
+        - 429/5xx: retry
+        - 401: re-auth, retry same solve
+        - 404: stale challenge; return error to trigger new challenge
+        - 200 pass:false: solver failed constraints (not transport error)
+        """
+        backoff = [2, 4, 8]
         
-        # First attempt
-        resp = self.session.post(
-            f"{COORDINATOR_URL}/v1/submit",
-            headers={
-                "Authorization": f"Bearer {self.token}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "miner": self.miner_address,
-                "challengeId": challenge.get("challengeId"),
-                "artifact": artifact,
-                "nonce": challenge.get("_nonce")
-            }
-        )
-        
-        # Handle 401 token expired - re-auth and retry once
-        if resp.status_code == 401:
-            try:
-                error_data = resp.json()
-                if error_data.get("reason") == "token_expired":
-                    self.log("Token expired, re-authenticating...")
-                    self.auth()  # Refresh token
-                    
-                    # Retry with new token
-                    resp = self.session.post(
-                        f"{COORDINATOR_URL}/v1/submit",
-                        headers={
-                            "Authorization": f"Bearer {self.token}",
-                            "Content-Type": "application/json"
-                        },
-                        json={
-                            "miner": self.miner_address,
-                            "challengeId": challenge.get("challengeId"),
-                            "artifact": artifact,
-                            "nonce": challenge.get("_nonce")
-                        }
-                    )
-                    self.log(f"Submit after re-auth: {resp.status_code}")
-            except:
-                pass  # If JSON parse fails, continue to error handling
-        
-        # Debug: log response status
-        self.log(f"Submit response status: {resp.status_code}")
-        
-        # Handle non-200 responses
-        if resp.status_code != 200:
-            self.log(f"Submit error response: {resp.text[:500]}")
-            raise Exception(f"Submit failed with status {resp.status_code}: {resp.text[:200]}")
+        for attempt in range(len(backoff) + 1):
+            resp = self.session.post(
+                f"{COORDINATOR_URL}/v1/submit",
+                headers={
+                    "Authorization": f"Bearer {self.token}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "miner": self.miner_address,
+                    "challengeId": challenge.get("challengeId"),
+                    "artifact": artifact,
+                    "nonce": challenge.get("_nonce")
+                }
+            )
+            
+            # Handle 401 token expired
+            if resp.status_code == 401:
+                try:
+                    error_data = resp.json()
+                    if error_data.get("reason") == "token_expired":
+                        self.log("Submit 401, re-authenticating...")
+                        self.auth()
+                        continue  # Retry with new token
+                except:
+                    pass
+            
+            # Handle 404 - stale challenge
+            if resp.status_code == 404:
+                self.log(f"Submit 404 - stale challenge: {resp.text[:200]}")
+                return {"error": "stale_challenge", "pass": False}
+            
+            # Handle 429/5xx with backoff
+            if resp.status_code in (429,) or 500 <= resp.status_code < 600:
+                if attempt < len(backoff):
+                    wait = backoff[attempt]
+                    self.log(f"Submit {resp.status_code}, retry in {wait}s")
+                    time.sleep(wait)
+                    continue
+            
+            # Non-retryable error (not 200)
+            if resp.status_code != 200:
+                self.log(f"Submit error: {resp.status_code} {resp.text[:200]}")
+                raise Exception(f"Submit failed: {resp.status_code}")
+            
+            # Success - got 200 response
+            break
         
         # Handle empty response
         if not resp.text.strip():
