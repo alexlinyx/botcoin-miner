@@ -30,15 +30,15 @@ VENICE_API_KEY = os.environ.get("VENICE_API_KEY")  # Venice AI API key
 USE_CLOUDSCRAPER = os.environ.get("USE_CLOUDSCRAPER", "true").lower() == "true"
 
 # Model configuration
-MODEL = os.environ.get("MODEL", "qwen3-235b-a22b-thinking-2507")
+MODEL = os.environ.get("MODEL", "deepseek-v3.2")
 
 # Legacy support
-VENICE_MODEL = os.environ.get("VENICE_MODEL", MODEL)
+VENICE_MODEL = os.environ.get("MODEL", MODEL)
 VENICE_BASE_URL = os.environ.get("VENICE_BASE_URL", "https://api.venice.ai/api/v1")
 
 # Self-correction settings
-MAX_TOKENS = int(os.environ.get("MAX_TOKENS"))  # 0 = unlimited
-LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT"))  # 0 = no timeout
+MAX_TOKENS = int(os.environ.get("MAX_TOKENS", 64000))  # 0 = unlimited
+LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", 0))  # 0 = no timeout
 
 # Botcoin token address
 BOTCOIN_ADDRESS = "0xA601877977340862Ca67f816eb079958E5bd0BA3"
@@ -455,19 +455,18 @@ class BotcoinMiner:
 
 APPROACH (follow these steps in order):
 1. SOLVE QUESTIONS: Read the document and answer questions required in constraints.
-2. VERIFY ANSWERS: Verify each answer matches a valid company name from the list.
-3. CONSTRUCT ARTIFACT: Build your single-line artifact that satisfies all constraints. Add filler words if necessary.
-4. VERIFY CONSTRAINTS: Count words, check acrostic, verify arithmetic, ensure no forbidden letters.
-5. CLEAN ARTIFACT: Remove all punctuation. The Artifact must only contain the required content and nothing more. 
-6. OUTPUT: Your final response must be exactly one line at the end — the artifact string.
+2. CONSTRUCT ARTIFACT: Build your single-line artifact that satisfies all constraints. Add filler words if necessary.
+3. VERIFY CONSTRAINTS: Count words, check acrostic, verify arithmetic, ensure no forbidden letters.
+4. CLEAN ARTIFACT: Remove all punctuation. The artifact string must contain only the required content and nothing more. 
+5. OUTPUT: Your final response must be exactly one line at the end — the artifact string.
 
-Tips for solving:
+TIPS (read before solving):
 - Skip questions that do not appear in constraints.
-- Pick simple filler words that don't violate constraints. Stop searching once you reach the target word count.
-- Artifact is case sensitive but does not need to make logical sense - follow all constraints.
-- Watch for aliases — companies are referenced by multiple names throughout the document.
-- Ignore hypothetical and speculative statements (red herrings).
-        
+- Document is fictional. Do not use assumptions about the real world to solve questions.
+- Pick simple single-letter filler words that don't violate constraints.
+- Arthmetic must be exact. Verify calculations are correct.
+- Artifact does not need to make logical sense.
+
 
 DOCUMENT:
 {doc}
