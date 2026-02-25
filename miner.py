@@ -465,12 +465,7 @@ CONSTRAINTS (you must satisfy ALL of these):
 {json.dumps(constraints, indent=2)}
 
 Tips for solving:
-- Questions require multi-hop reasoning (e.g., "which company had the highest total annual revenue?")
-- Watch for aliases — companies are referenced by multiple names throughout the document
-- The companies array in the response lists all valid company names — answers must match one of these exactly
-- Ignore hypothetical and speculative statements (red herrings)
-- You must satisfy every constraint to pass (deterministic verification; no AI grading)
-- FILLER WORDS: To meet word count, add simple filler words (the, and, a, in, is, of, to, for, with, at, by, on). Pick any that don't violate constraints. Stop searching once you reach the target word count.
+- FILLER WORDS: To meet word count, pick any words that don't violate constraints. Stop searching once you reach the target word count.
 
 Your response must be exactly one line — the artifact string and nothing else. Do NOT output "Q1:", "Looking at", "Let me", "First", "Answer:", or any reasoning. Do NOT explain your process. Output ONLY the single-line artifact that satisfies all constraints. No preamble. No JSON. Just the artifact."""
 
