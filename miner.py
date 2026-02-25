@@ -591,10 +591,16 @@ Your response must be exactly one line — the artifact string and nothing else.
         
         self.log(f"Artifact ({len(artifact.split())} words): {artifact}")
         
-        # Save submission to log file
+        # Save submission to log file as JSON
         if log_fp:
-            log_fp.write(f"--- SUBMISSION ---\n")
-            log_fp.write(artifact + "\n")
+            submission_json = json.dumps({
+                "miner": self.miner_address,
+                "challengeId": challenge.get("challengeId"),
+                "artifact": artifact,
+                "nonce": challenge.get("_nonce")
+            }, indent=2)
+            log_fp.write(f"--- SUBMISSION (JSON) ---\n")
+            log_fp.write(submission_json + "\n")
             log_fp.write(f"Tokens: {prompt_tokens}+{completion_tokens}\n")
             log_fp.close()
         
