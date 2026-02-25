@@ -512,7 +512,6 @@ Tips for solving:
         # Collect streaming response
         self.log("Streaming response from Venice AI...")
         artifact_chunks = []
-        reasoning_chunks = []
         finish_reason = None
         prompt_tokens = 0
         completion_tokens = 0
@@ -531,17 +530,11 @@ Tips for solving:
                 chunk = json.loads(data)
                 delta = chunk.get('choices', [{}])[0].get('delta', {})
                 
-                # Collect content (handle None values)
+                # Collect content
                 content = delta.get('content')
                 if content:
                     artifact_chunks.append(content)
                     print(content, end='', flush=True)
-                    chunk_count += 1
-                
-                reasoning = delta.get('reasoning_content')
-                if reasoning:
-                    reasoning_chunks.append(reasoning)
-                    print(f"\033[90m{reasoning}\033[0m", end='', flush=True)
                     chunk_count += 1
                 
                 # Track finish reason
@@ -566,20 +559,7 @@ Tips for solving:
         # Combine chunks
         raw_artifact = ''.join(artifact_chunks)
         
-        # Filter out [REASONING] tags only (not all brackets)
-        import re
-        # Remove [REASONING] and [/REASONING] tags
-        filtered_artifact = re.sub(r'\[/?REASONING\]', '', raw_artifact)
-        # Remove any thinking tags
-        filtered_artifact = re.sub(r'\[/?THINKING\]', '', filtered_artifact)
-        
-        artifact = filtered_artifact.strip()
-        reasoning = ''.join(reasoning_chunks).strip()
-        
-        # Use reasoning_content if content is empty (DeepSeek reasoning mode)
-        if not artifact and reasoning:
-            self.log("Found output in reasoning_content (DeepSeek reasoning mode)")
-            artifact = reasoning
+        artifact = raw_artifact.strip()
         
         # Log token usage
         if prompt_tokens or completion_tokens:
