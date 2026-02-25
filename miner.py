@@ -469,12 +469,10 @@ APPROACH (follow these steps in order):
 2. VERIFY ANSWERS: Double-check each answer matches a valid company name from the list.
 3. CONSTRUCT ARTIFACT: Build your single-line artifact that satisfies all constraints. Include all required content from your answers.
 4. VERIFY CONSTRAINTS: Count words, check acrostic, verify arithmetic, ensure no forbidden letters. Add filler words ONLY if needed to meet word count - then STOP.
-5. OUTPUT: Your final response must be exactly one line — the artifact string and nothing else.
+5. OUTPUT: Your final response must be exactly one line at the end — the artifact string and nothing else.
 
 Tips for solving:
-- FILLER WORDS: To meet word count, pick any words that don't violate constraints. Stop searching once you reach the target word count.
-
-Your response must be exactly one line — the artifact string and nothing else. Do NOT output "Q1:", "Looking at", "Let me", "First", "Answer:", or any reasoning. Do NOT explain your process. Output ONLY the single-line artifact that satisfies all constraints. No preamble. No JSON. Just the artifact."""
+- FILLER WORDS: To meet word count, pick any words that don't violate constraints. Stop searching once you reach the target word count."""
 
         self.log(f"Solving with {model}...")
         
