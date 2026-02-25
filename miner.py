@@ -37,8 +37,8 @@ VENICE_MODEL = os.environ.get("VENICE_MODEL", MODEL)
 VENICE_BASE_URL = os.environ.get("VENICE_BASE_URL", "https://api.venice.ai/api/v1")
 
 # Self-correction settings
-MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "0"))  # 0 = unlimited
-LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT", "0"))  # 0 = no timeout
+MAX_TOKENS = int(os.environ.get("MAX_TOKENS"))  # 0 = unlimited
+LLM_TIMEOUT = int(os.environ.get("LLM_TIMEOUT"))  # 0 = no timeout
 
 # Botcoin token address
 BOTCOIN_ADDRESS = "0xA601877977340862Ca67f816eb079958E5bd0BA3"
@@ -496,7 +496,7 @@ Tips for solving:
                 "stream": True,  # API param - enable streaming response
             },
             stream=True,  # Library param - stream HTTP response
-            timeout=LLM_TIMEOUT,  # No client timeout
+            timeout=LLM_TIMEOUT,
         )
         
         # Check for errors in stream
@@ -595,9 +595,6 @@ Tips for solving:
         
         if not artifact:
             raise Exception(f"Empty artifact from Venice AI")
-        
-        if not artifact:
-            raise Exception(f"Empty artifact from Venice AI: {result}")
         
         # Since prompt instructs model to output ONLY one line, just take the last non-empty line
         lines = [l.strip() for l in artifact.split('\n') if l.strip()]
