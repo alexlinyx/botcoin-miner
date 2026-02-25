@@ -469,14 +469,13 @@ APPROACH (follow these steps in order):
 1. SOLVE QUESTIONS: Read the document and answer each question. Verify your answers are correct.
 2. VERIFY ANSWERS: Double-check each answer matches a valid company name from the list.
 3. CONSTRUCT ARTIFACT: Build your single-line artifact that satisfies all constraints. Include all required content from your answers.
-4. VERIFY CONSTRAINTS: Count words, check acrostic, verify arithmetic, ensure no forbidden letters. Add filler words ONLY if needed to meet word count - then STOP.
+4. VERIFY CONSTRAINTS: Count words, check acrostic, verify arithmetic, ensure no forbidden letters, confirm casing.
 5. CLEAN ARTIFACT: Remove all punctuation. The Artifact must only contain the required content and nothing more. 
 6. OUTPUT: Your final response must be exactly one line at the end — the artifact string and nothing else.
 
 Tips for solving:
 - To meet word count, pick any filler words that don't violate constraints. Stop searching once you reach the target word count.
-- The artifact does not need to make logical sense.
-- Artifact may be case sensitive - follow constraint closely.
+- Artifact is case sensitive but does not need to make logical sense - follow constraints closely.
 - Watch for aliases — companies are referenced by multiple names throughout the document.
 - Ignore hypothetical and speculative statements (red herrings)."""
 
