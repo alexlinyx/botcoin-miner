@@ -668,7 +668,10 @@ ARTIFACT:"""
                 artifact = line
                 break
         
-        self.log(f"Artifact ({len(artifact.split())} words): {artifact[:100]}...")
+        self.log(f"Artifact ({len(artifact.split())} words): {artifact}")
+        
+        reasoning_time = time.time() - solve_start_time
+        self.log(f"Reasoning time: {reasoning_time:.2f}s")
         
         reasoning_time = time.time() - solve_start_time
         self.log(f"Reasoning time: {reasoning_time:.2f}s")
