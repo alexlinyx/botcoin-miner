@@ -337,6 +337,26 @@ class BotcoinMiner:
         
         return None
     
+    def _log_failure(self, challenge: Dict, artifact: str, prompt: str, reasoning_time: float):
+        """Log failed submission to failures.log"""
+        try:
+            with open("failures.log", "a") as f:
+                f.write(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] FAILED\n")
+                f.write(f"Model: {MODEL} | Epoch: {challenge.get('epochId')}\n")
+                f.write(f"Reasoning time: {reasoning_time:.2f}s\n")
+                f.write(f"\n--- PROMPT ---\n")
+                f.write(prompt + "\n")
+                f.write(f"\n--- SUBMISSION (JSON) ---\n")
+                submission_json = json.dumps({
+                    "miner": self.miner_address,
+                    "challengeId": challenge.get("challengeId"),
+                    "artifact": artifact,
+                    "nonce": challenge.get("_nonce")
+                }, indent=2)
+                f.write(submission_json + "\n")
+        except Exception as e:
+            self.log(f"Failed to write to failures.log: {e}")
+    
     # ==================== CHALLENGE ====================
     
     def get_challenge(self) -> Dict:
@@ -409,16 +429,15 @@ class BotcoinMiner:
     
     # ==================== SOLVE ====================
     
-    def solve(self, challenge: Dict, model: str = None, log_file: str = None) -> tuple:
+    def solve(self, challenge: Dict, model: str = None) -> tuple:
         """Solve the challenge using LLM.
         
         Args:
             challenge: Challenge dict
             model: Model to use (defaults to MODEL)
-            log_file: If provided, stream output to this file
             
         Returns:
-            tuple: (artifact: str, reasoning_time: float)
+            tuple: (artifact: str, reasoning_time: float, prompt: str)
         """
         solve_start_time = time.time()
         
@@ -492,15 +511,6 @@ Your response must be exactly one line — the artifact string and nothing else.
         prompt_tokens = 0
         completion_tokens = 0
         chunk_count = 0
-        
-        # Open log file if provided
-        log_fp = None
-        if log_file:
-            log_fp = open(log_file, "a")
-            log_fp.write(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] FAILED\n")
-            log_fp.write(f"Model: {model} | Epoch: {challenge.get('epochId')}\n")
-            log_fp.write(f"\n--- PROMPT ---\n")
-            log_fp.write(prompt + "\n")
         
         for line in resp.iter_lines():
             if not line:
@@ -589,23 +599,10 @@ Your response must be exactly one line — the artifact string and nothing else.
         
         self.log(f"Artifact ({len(artifact.split())} words): {artifact}")
         
-        # Save submission to log file as JSON
-        if log_fp:
-            submission_json = json.dumps({
-                "miner": self.miner_address,
-                "challengeId": challenge.get("challengeId"),
-                "artifact": artifact,
-                "nonce": challenge.get("_nonce")
-            }, indent=2)
-            log_fp.write(f"--- SUBMISSION (JSON) ---\n")
-            log_fp.write(submission_json + "\n")
-            log_fp.write(f"Tokens: {prompt_tokens}+{completion_tokens}\n")
-            log_fp.close()
-        
         reasoning_time = time.time() - solve_start_time
         self.log(f"Reasoning time: {reasoning_time:.2f}s")
         
-        return artifact, reasoning_time
+        return artifact, reasoning_time, prompt
     
     # ==================== SUBMIT ====================
     
@@ -741,8 +738,8 @@ Your response must be exactly one line — the artifact string and nothing else.
         # Get challenge
         challenge = self.get_challenge()
         
-        # Solve (logs model name internally)
-        artifact, reasoning_time = self.solve(challenge, model=MODEL, log_file="failures.log")
+        # Solve
+        artifact, reasoning_time, prompt = self.solve(challenge, model=MODEL)
         result = self.submit(challenge, artifact)
         
         # Track reasoning time
@@ -751,7 +748,10 @@ Your response must be exactly one line — the artifact string and nothing else.
             self.stats["solve_count"] = 0
         self.stats["total_reasoning_time"] += reasoning_time
         self.stats["solve_count"] += 1
-        avg_time = self.stats["total_reasoning_time"] / self.stats["solve_count"]
+        
+        # Only log to failures.log if submit failed
+        if not result.get("pass"):
+            self._log_failure(challenge, artifact, prompt, reasoning_time)
         
         # Get epoch info
         epoch_id = challenge.get("epochId", "unknown")
