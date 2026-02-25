@@ -57,7 +57,7 @@ class BotcoinMiner:
             "total_attempts": 0,
             "start_time": None,
             "last_solve_time": None,
-            "epochs": {}  # {"epoch_id": {"solves": 0, "fails": 0, "credits": 0}}
+            "epochs": {}  # {"epoch_id": {"solves": 0, "fails": 0}}
         }
         self.stats_file = "mining_stats.json"
         self._load_stats()
@@ -404,7 +404,7 @@ class BotcoinMiner:
         challenge["_nonce"] = nonce
         epoch_id = challenge.get('epochId')
         credits = challenge.get('creditsPerSolve', 1)
-        self.log(f"Got challenge epoch {epoch_id} | Credits per solve: {credits} ⛏️")
+        self.log(f"Got challenge epoch {epoch_id}")
         return challenge
     
     # ==================== SOLVE ====================
@@ -731,12 +731,9 @@ Your response must be exactly one line — the artifact string and nothing else.
         if self.stats.get("epochs"):
             print("\n📅 EPOCH STATS")
             print("-" * 30)
-            total_credits = 0
             for epoch_id in sorted(self.stats["epochs"].keys(), key=lambda x: int(x) if x.isdigit() else 0):
                 e = self.stats["epochs"][epoch_id]
-                print(f"Epoch {epoch_id}: {e['solves']} solves, {e['fails']} fails, {e['credits']} credits")
-                total_credits += e['credits']
-            print(f"Total Credits: {total_credits}")
+                print(f"Epoch {epoch_id}: {e['solves']} solves, {e['fails']} fails")
         
         print("=" * 50 + "\n")
     
@@ -760,17 +757,15 @@ Your response must be exactly one line — the artifact string and nothing else.
         
         # Get epoch info
         epoch_id = challenge.get("epochId", "unknown")
-        credits_earned = result.get("creditsPerSolve", 0)
         
         # Initialize epoch if needed
         if epoch_id not in self.stats["epochs"]:
-            self.stats["epochs"][epoch_id] = {"solves": 0, "fails": 0, "credits": 0}
+            self.stats["epochs"][epoch_id] = {"solves": 0, "fails": 0}
         
         if result.get("pass"):
             self.post_receipt(result)
             self.stats["solves"] += 1
             self.stats["epochs"][epoch_id]["solves"] += 1
-            self.stats["epochs"][epoch_id]["credits"] += credits_earned
             self.stats["last_solve_time"] = time.strftime('%Y-%m-%d %H:%M:%S')
             self._save_stats()
             return True
