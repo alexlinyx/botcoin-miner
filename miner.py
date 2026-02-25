@@ -409,13 +409,11 @@ class BotcoinMiner:
     
     # ==================== SOLVE ====================
     
-    def solve(self, challenge: Dict, previous_artifact: str = None, failed_constraints: list = None, model: str = None, log_file: str = None) -> tuple:
+    def solve(self, challenge: Dict, model: str = None, log_file: str = None) -> tuple:
         """Solve the challenge using LLM.
         
         Args:
             challenge: Challenge dict
-            previous_artifact: Previous failed artifact (for retry context)
-            failed_constraints: List of failed constraint indices
             model: Model to use (defaults to MODEL)
             log_file: If provided, stream output to this file
             
@@ -429,13 +427,10 @@ class BotcoinMiner:
         
         doc = challenge.get("doc", "")
         questions = challenge.get("questions", [])
-        constraints = challenge.get("constraints", [])
         companies = challenge.get("companies", [])
         
-        # Base prompt
-        prompt = f"""You are solving a BOTCOIN mining challenge. This requires precise multi-hop reasoning and constraint satisfaction.
-
-IMPORTANT: Output ONLY the final artifact. Do not include any reasoning, thinking, or internal analysis in your response.
+        # Simple prompt - no constraints
+        prompt = f"""You are solving a BOTCOIN mining challenge.
 
 DOCUMENT:
 {doc}
@@ -446,80 +441,11 @@ VALID COMPANY NAMES (answers must match exactly):
 QUESTIONS TO ANSWER:
 {json.dumps(questions, indent=2)}
 
-CONSTRAINTS (your artifact must satisfy ALL of these):
-{json.dumps(constraints, indent=2)}
-
 OUTPUT FORMAT:
 First show your reasoning (brief), then output ONLY the artifact on its own line:
 ARTIFACT: [your single-line answer]"""
-        
-        # Add self-correction feedback if this is a retry
-        if previous_artifact and failed_constraints:
-            prompt += f"""
 
-=== SELF-CORCTION MODE ===
-Your previous artifact FAILED. Here's what went wrong:
-
-Previous artifact: "{previous_artifact}"
-
-Failed constraints: {failed_constraints}
-(Constraint indices are 0-based: 0 = first constraint, 1 = second, etc.)
-
-You must fix these specific issues. Re-analyze the document and constraints.
-Pay extra attention to:
-- Exact word count requirements
-- Required words/phrases that must be included
-- Forbidden letters that must NOT appear
-- Acrostic requirements (first letters of first N words)
-- Arithmetic calculations (primes, equations)
-
-COMMON MISTAKES TO AVOID:
-1. Wrong word count - count EXACTLY
-2. Missing required words - check spelling exactly
-3. Forbidden letters - scan every word carefully
-4. Wrong acrostic - verify first letters match target
-5. Arithmetic errors - recalculate primes and equations
-
-Now construct a NEW artifact that fixes these issues."""
-        else:
-            prompt += """
-
-INSTRUCTIONS - Follow these steps exactly:
-
-STEP 1: ANSWER EACH QUESTION
-For each question, identify the exact company name from the document. Output your answers as:
-Q1: [exact company name]
-Q2: [exact company name]
-...
-
-STEP 2: EXTRACT REQUIRED VALUES
-From your answers, extract:
-- Required city/country/names
-- Employee counts for calculations
-- Revenue figures for equations
-- Any other values needed for constraints
-
-STEP 3: CALCULATE PRECISE VALUES
-For arithmetic constraints (primes, equations), show your work:
-- nextPrime(X): calculate step by step
-- A+B=C: show each value
-
-STEP 4: CONSTRUCT THE ARTIFACT
-Build a single-line artifact that satisfies ALL constraints. Verify:
-- Word count is EXACT
-- All required words are included
-- No forbidden letters appear
-- Acrostic spells the target"""
-        
-        prompt += """
-
-STEP 5: OUTPUT ONLY THE ARTIFACT
-Your final output must be EXACTLY ONE LINE - the artifact string.
-No explanation. No preamble. No JSON. Just the artifact.
-
-ARTIFACT:"""
-
-        self.log(f"Solving with {model}...{'(RETRY)' if previous_artifact else ''}")
+        self.log(f"Solving with {model}...")
         
         # Call Venice AI API with streaming to avoid server timeout
         resp = requests.post(
@@ -566,9 +492,8 @@ ARTIFACT:"""
             log_fp.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] FAILED CHALLENGE\n")
             log_fp.write(f"Model: {model}\n")
             log_fp.write(f"Epoch: {challenge.get('epochId')}\n")
-            log_fp.write(f"Constraints: {challenge.get('constraints', [])}\n")
             log_fp.write(f"{'='*60}\n")
-            log_fp.write(f"--- PROMPT (first 2000 chars) ---\n")
+            log_fp.write(f"--- PROMPT ---\n")
             log_fp.write(prompt + "\n")
             log_fp.write(f"{'='*60}\n")
         
@@ -690,13 +615,7 @@ ARTIFACT:"""
     # ==================== SUBMIT ====================
     
     def submit(self, challenge: Dict, artifact: str) -> Dict:
-        """Submit the solution to coordinator.
-        Handles errors per spec:
-        - 429/5xx: retry
-        - 401: re-auth, retry same solve
-        - 404: stale challenge; return error to trigger new challenge
-        - 200 pass:false: solver failed constraints (not transport error)
-        """
+        """Submit the solution to coordinator."""
         backoff = [2, 4, 8]
         
         for attempt in range(len(backoff) + 1):
@@ -825,8 +744,7 @@ ARTIFACT:"""
         print("=" * 50 + "\n")
     
     def mine_one(self) -> bool:
-        """Run one mining cycle: solve → submit → if pass:false, get new challenge.
-        Returns True if successful."""
+        """Run one mining cycle: solve, then submit. Returns True if successful."""
         
         # Get challenge
         challenge = self.get_challenge()
