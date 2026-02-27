@@ -127,16 +127,36 @@ class BotcoinMiner:
     
     # ==================== BANKR API ====================
     
-    def bankr_get(self, endpoint: str) -> Dict:
-        """Call Bankr API GET endpoint."""
+    def _bankr_handle_error(self, resp, operation: str):
+        """Handle Bankr API errors. Raises exception for fatal errors."""
+        if resp.status_code == 401:
+            raise Exception(f"Bankr API key is invalid. Check BANKR_API_KEY environment variable.")
+        
+        if resp.status_code == 403:
+            raise Exception(f"Bankr API key lacks write/agent access. Enable it at bankr.bot/api")
+        
+        if resp.status_code == 429:
+            return "rate_limited"
+        
+        return None
+    
+    def bankr_get(self, endpoint: str, retry_on_429: bool = True) -> Dict:
+        """Call Bankr API GET endpoint with error handling."""
         resp = self.session.get(
             f"https://api.bankr.bot{endpoint}",
             headers={"X-API-Key": BANKR_API_KEY}
         )
+        
+        error = self._bankr_handle_error(resp, f"GET {endpoint}")
+        if error == "rate_limited" and retry_on_429:
+            self.log("Bankr rate limited, waiting 60s...")
+            time.sleep(60)
+            return self.bankr_get(endpoint, retry_on_429=False)
+        
         return resp.json()
     
-    def bankr_post(self, endpoint: str, data: Dict) -> Dict:
-        """Call Bankr API POST endpoint."""
+    def bankr_post(self, endpoint: str, data: Dict, retry_on_429: bool = True) -> Dict:
+        """Call Bankr API POST endpoint with error handling."""
         resp = self.session.post(
             f"https://api.bankr.bot{endpoint}",
             headers={
@@ -145,6 +165,13 @@ class BotcoinMiner:
             },
             json=data
         )
+        
+        error = self._bankr_handle_error(resp, f"POST {endpoint}")
+        if error == "rate_limited" and retry_on_429:
+            self.log("Bankr rate limited, waiting 60s...")
+            time.sleep(60)
+            return self.bankr_post(endpoint, data, retry_on_429=False)
+        
         return resp.json()
     
     def bankr_prompt(self, prompt: str, timeout: int = 60) -> str:
@@ -176,13 +203,25 @@ class BotcoinMiner:
             raise Exception(f"Failed to sign: {result}")
         return sig
     
-    def bankr_submit_tx(self, tx: Dict, description: str = "") -> Dict:
-        """Submit a raw transaction via Bankr."""
-        return self.bankr_post("/agent/submit", {
+    def bankr_submit_tx(self, tx: Dict, description: str = "", retry: bool = True) -> Dict:
+        """Submit a raw transaction via Bankr with retry on failure."""
+        result = self.bankr_post("/agent/submit", {
             "transaction": tx,
             "description": description,
             "waitForConfirmation": True
         })
+        
+        # Check for transaction failure
+        if not result.get("success"):
+            error_msg = result.get("error", str(result))
+            if retry:
+                self.log(f"Transaction failed: {error_msg}. Retrying once...")
+                time.sleep(5)
+                return self.bankr_submit_tx(tx, description, retry=False)
+            else:
+                raise Exception(f"Transaction failed twice: {error_msg}")
+        
+        return result
     
     # ==================== WALLET & BALANCE ====================
     
