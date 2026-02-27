@@ -456,14 +456,15 @@ class BotcoinMiner:
 APPROACH (follow these steps in order):
 1. READ CONSTRAINTS: Make a list of questions that appear in CONSTRAINTS.
 2. READ DOCUMENT: Answer the necessary questions. Skip the others.
-3. BUILD ARTIFACT: Only use words from DOCUMENT. Build acrostic. Add names, locations, numbers, equation. Fill the rest with single-letter words.
+3. BUILD ARTIFACT: Use words from DOCUMENT to build acrostic. Add names, locations, numbers, equation. Add single-letter words for fillers.
 4. VERIFY ANSWERS: Confirm question answers appear in COMPANIES.
 5. VERIFY CONSTRAINTS: Remove punctuation and forbidden letters. Count words, check acrostic, verify arithmetic.
 6. OUTPUT ARTIFACT: Your final response must be exactly one line at the end — the artifact string.
 
 TIPS (read before solving):
+- Do not go into a loop searching for words.
 - Document is in a fictional setting. Do not use assumptions about the real world to solve questions.
-- Words can be single-letter. Words can be fake. Words can repeat.
+- Words can be single-letter. Words can contain digits and symbols. Do not search for new words.
 - nextPrime(n) is greater than or equal to n.
 - Every letter in acrostic must be uppercased.
 - Arthmetic must be exact. Verify calculations are correct.
