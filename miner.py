@@ -828,10 +828,10 @@ DOCUMENT:
     def mine_one(self) -> bool:
         """Run one mining cycle: solve, then submit. Returns True if successful."""
         
-        # Ensure we have a valid token before starting the cycle
-        self.ensure_auth()
-        
         while True:
+            # Ensure we have a valid token before each attempt
+            self.ensure_auth()
+            
             # Get challenge
             challenge = self.get_challenge()
             
