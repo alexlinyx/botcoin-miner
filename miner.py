@@ -49,6 +49,7 @@ class BotcoinMiner:
     def __init__(self):
         self.miner_address: Optional[str] = None
         self.token: Optional[str] = None
+        self.token_expires_at: Optional[float] = None  # Unix timestamp when token expires
         
         # Stats tracking
         self.stats = {
@@ -244,11 +245,14 @@ class BotcoinMiner:
             
             # Step 3: Verify with retry logic
             verify_attempts += 1
-            token = self._auth_verify(message, signature, verify_attempts, max_verify_attempts)
+            result = self._auth_verify(message, signature, verify_attempts, max_verify_attempts)
             
-            if token:
+            if result:
+                token, expires_in = result
                 self.token = token
-                self.log("Authenticated successfully")
+                # Set token expiry (subtract 60s buffer for safety)
+                self.token_expires_at = time.time() + expires_in - 60
+                self.log(f"Authenticated successfully (token valid for {expires_in}s)")
                 return self.token
             
             # If verify failed with retryable error and we haven't exhausted attempts, loop will continue
@@ -297,8 +301,9 @@ class BotcoinMiner:
             if resp.status_code == 200:
                 data = resp.json()
                 token = data.get("token")
+                expires_in = data.get("expiresInSeconds", 600)
                 if token:
-                    return token
+                    return token, expires_in
                 raise Exception(f"Verify succeeded but no token: {data}")
             
             # Handle specific error codes
@@ -358,6 +363,18 @@ class BotcoinMiner:
         except Exception as e:
             self.log(f"Failed to write to failures.log: {e}")
     
+    def ensure_auth(self):
+        """Ensure we have a valid token, re-auth if needed."""
+        if not self.token or not self.token_expires_at:
+            self.log("No token, authenticating...")
+            self.auth()
+            return
+        
+        # Refresh if token expires within 60 seconds
+        if time.time() > self.token_expires_at - 60:
+            self.log("Token expiring soon, re-authenticating...")
+            self.auth()
+    
     # ==================== CHALLENGE ====================
     
     def get_challenge(self) -> Dict:
@@ -369,6 +386,9 @@ class BotcoinMiner:
         """
         import secrets
         backoff = [2, 4, 8, 16, 30]
+        
+        # Ensure we have a valid token before making request
+        self.ensure_auth()
         
         for attempt in range(len(backoff) + 1):
             nonce = secrets.token_hex(16)
@@ -620,6 +640,9 @@ DOCUMENT:
     def submit(self, challenge: Dict, artifact: str) -> Dict:
         """Submit the solution to coordinator."""
         backoff = [2, 4, 8]
+
+        # Ensure we have a valid token before submitting
+        self.ensure_auth()
 
         for attempt in range(len(backoff) + 1):
             resp = self.session.post(
