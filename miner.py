@@ -917,18 +917,15 @@ DOCUMENT:
                 # Tokens last ~10 minutes, re-auth every 8 minutes
                 time.sleep(5)
                 
+            except KeyboardInterrupt:
+                self.log("Stopping miner...")
+                self.show_stats()
+                break
             except VeniceRetryableError as e:
                 # Venice AI had retryable error (429/500/503) - wait 60s and get new challenge
                 self.log(f"Venice AI retryable error: {e}. Waiting 60s then fetching new challenge...")
                 time.sleep(60)
                 # Loop will continue and get new challenge
-            except KeyboardInterrupt:
-                self.log("Stopping miner...")
-                self.show_stats()
-                break
-            except Exception as e:
-                self.log(f"Error in loop: {e}")
-                time.sleep(10)
 
 
 if __name__ == "__main__":
