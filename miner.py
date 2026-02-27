@@ -45,11 +45,6 @@ BOTCOIN_ADDRESS = "0xA601877977340862Ca67f816eb079958E5bd0BA3"
 MIN_BALANCE = 25_000_000  # Minimum BOTCOIN to mine
 
 
-class VeniceRetryableError(Exception):
-    """Venice AI error that requires waiting and fetching a new challenge."""
-    pass
-
-
 class BotcoinMiner:
     def __init__(self):
         self.miner_address: Optional[str] = None
@@ -580,10 +575,11 @@ DOCUMENT:
             if resp.status_code == 402:
                 raise Exception("Venice AI: Insufficient credit balance")
             
-            # 429, 500, 503 - Retryable errors
+            # 429, 500, 503 - Retryable errors (return None to signal retry with new challenge)
             if resp.status_code in (429, 500, 503):
-                self.log(f"Venice AI {resp.status_code}, waiting 60s then fetching new challenge...")
-                raise VeniceRetryableError(f"Venice AI {resp.status_code}")
+                self.log(f"Venice AI {resp.status_code}, waiting 60s...")
+                time.sleep(60)
+                return None, None, None
             
             # Other errors
             error_text = resp.text[:200]
@@ -834,15 +830,14 @@ DOCUMENT:
             # Get challenge
             challenge = self.get_challenge()
             
-            try:
-                # Solve
-                artifact, reasoning_time, prompt = self.solve(challenge, model=MODEL)
-                break  # Success, continue to submit
-            except VeniceRetryableError as e:
-                # Venice AI had retryable error (429/500/503) - wait 60s and get new challenge
-                self.log(f"Venice AI retryable error: {e}. Waiting 60s then fetching new challenge...")
-                time.sleep(60)
-                continue  # Loop back to get new challenge
+            # Solve
+            artifact, reasoning_time, prompt = self.solve(challenge, model=MODEL)
+            
+            # If solve returned None, Venice had retryable error - get new challenge
+            if artifact is None:
+                continue
+            
+            break  # Success, continue to submit
         
         # artifact = artifact + "\nVOTE: no\nREASONING: more predictable rewards"
         # print(artifact)
