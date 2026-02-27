@@ -419,17 +419,15 @@ class BotcoinMiner:
     def get_challenge(self) -> Dict:
         """Request a new challenge.
         Handles errors per spec:
-        - 429/5xx: retry
-        - 401: re-auth then retry
+        - 429/5xx: retry with backoff
+        - 401: re-auth then retry (doesn't count against backoff limit)
         - 403: stop (insufficient balance)
         """
         import secrets
         backoff = [2, 4, 8, 16, 30]
         
-        # Note: We don't proactively refresh token here - let inference complete first
-        # Token refresh happens in submit() before we actually need it
-        
-        for attempt in range(len(backoff) + 1):
+        attempt = 0
+        while True:
             nonce = secrets.token_hex(16)
             
             resp = self.session.get(
@@ -444,14 +442,9 @@ class BotcoinMiner:
                 break
             
             if resp.status_code == 401:
-                try:
-                    error_data = resp.json()
-                    if error_data.get("reason") == "token_expired":
-                        self.log("Challenge 401, re-authenticating...")
-                        self.auth()
-                        continue  # Retry with new token
-                except:
-                    pass
+                self.log("Challenge 401, re-authenticating...")
+                self.auth()
+                continue  # Retry with new token (doesn't increment attempt)
             
             if resp.status_code == 403:
                 self.log(f"Challenge 403 - insufficient balance: {resp.text[:200]}")
@@ -462,6 +455,7 @@ class BotcoinMiner:
                     wait = backoff[attempt]
                     self.log(f"Challenge {resp.status_code}, retry in {wait}s")
                     time.sleep(wait)
+                    attempt += 1
                     continue
             
             # Other errors
@@ -692,13 +686,16 @@ DOCUMENT:
     # ==================== SUBMIT ====================
     
     def submit(self, challenge: Dict, artifact: str) -> Dict:
-        """Submit the solution to coordinator."""
+        """Submit the solution to coordinator.
+        Handles errors per spec:
+        - 429/5xx: retry with backoff
+        - 401: re-auth, retry same solve (doesn't count against backoff limit)
+        - 404/409: stale challenge, return error to caller
+        """
         backoff = [2, 4, 8]
 
-        # Ensure we have a valid token before submitting
-        self.ensure_auth()
-
-        for attempt in range(len(backoff) + 1):
+        attempt = 0
+        while True:
             resp = self.session.post(
                 f"{COORDINATOR_URL}/v1/submit",
                 headers={
@@ -713,16 +710,14 @@ DOCUMENT:
                 }
             )
             
-            # Handle 401 token expired
+            if resp.status_code == 200:
+                break
+            
+            # Handle 401 - re-auth and retry same solve
             if resp.status_code == 401:
-                try:
-                    error_data = resp.json()
-                    if error_data.get("reason") == "token_expired":
-                        self.log("Submit 401, re-authenticating...")
-                        self.auth()
-                        continue  # Retry with new token
-                except:
-                    pass
+                self.log("Submit 401, re-authenticating...")
+                self.auth()
+                continue  # Retry with new token (doesn't increment attempt)
             
             # Handle 409 - challenge eligibility snapshot missing (need fresh challenge)
             if resp.status_code == 409:
@@ -740,15 +735,12 @@ DOCUMENT:
                     wait = backoff[attempt]
                     self.log(f"Submit {resp.status_code}, retry in {wait}s")
                     time.sleep(wait)
+                    attempt += 1
                     continue
             
-            # Non-retryable error (not 200)
-            if resp.status_code != 200:
-                self.log(f"Submit error: {resp.status_code} {resp.text[:200]}")
-                raise Exception(f"Submit failed: {resp.status_code}")
-            
-            # Success - got 200 response
-            break
+            # Other errors
+            self.log(f"Submit error: {resp.status_code} {resp.text[:200]}")
+            raise Exception(f"Submit failed: {resp.status_code}")
         
         # Handle empty response
         if not resp.text.strip():
