@@ -724,6 +724,11 @@ DOCUMENT:
                 except:
                     pass
             
+            # Handle 409 - challenge eligibility snapshot missing (need fresh challenge)
+            if resp.status_code == 409:
+                self.log("Submit 409 - challenge eligibility missing, need fresh challenge")
+                return {"error": "stale_challenge", "pass": False}
+            
             # Handle 404 - stale challenge
             if resp.status_code == 404:
                 self.log(f"Submit 404 - stale challenge: {resp.text[:200]}")
@@ -837,12 +842,15 @@ DOCUMENT:
             if artifact is None:
                 continue
             
-            break  # Success, continue to submit
-        
-        # artifact = artifact + "\nVOTE: no\nREASONING: more predictable rewards"
-        # print(artifact)
-        
-        result = self.submit(challenge, artifact)
+            # Submit
+            result = self.submit(challenge, artifact)
+            
+            # If stale challenge (404/409), get a new one and retry
+            if result.get("error") == "stale_challenge":
+                self.log("Stale challenge, getting new one...")
+                continue
+            
+            break  # Got a valid result (pass or fail)
         
         # Track reasoning time
         if "total_reasoning_time" not in self.stats:
