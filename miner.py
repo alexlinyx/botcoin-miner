@@ -825,17 +825,21 @@ DOCUMENT:
         print("=" * 50 + "\n")
     
     def mine_one(self) -> bool:
-        """Run one mining cycle: solve, then submit. Returns True if successful.
+        """Run one mining cycle: solve, then submit. Returns True if successful."""
         
-        Raises:
-            VeniceRetryableError: If Venice AI has retryable error (429/500/503) - caller should wait 60s and retry
-        """
-        
-        # Get challenge
-        challenge = self.get_challenge()
-        
-        # Solve (may raise VeniceRetryableError)
-        artifact, reasoning_time, prompt = self.solve(challenge, model=MODEL)
+        while True:
+            # Get challenge
+            challenge = self.get_challenge()
+            
+            try:
+                # Solve
+                artifact, reasoning_time, prompt = self.solve(challenge, model=MODEL)
+                break  # Success, continue to submit
+            except VeniceRetryableError as e:
+                # Venice AI had retryable error (429/500/503) - wait 60s and get new challenge
+                self.log(f"Venice AI retryable error: {e}. Waiting 60s then fetching new challenge...")
+                time.sleep(60)
+                continue  # Loop back to get new challenge
         
         # artifact = artifact + "\nVOTE: no\nREASONING: more predictable rewards"
         # print(artifact)
@@ -912,20 +916,12 @@ DOCUMENT:
             try:
                 self.stats["total_attempts"] += 1
                 success = self.mine_one()
-                
-                # Re-auth if needed (token expires)
-                # Tokens last ~10 minutes, re-auth every 8 minutes
                 time.sleep(5)
                 
             except KeyboardInterrupt:
                 self.log("Stopping miner...")
                 self.show_stats()
                 break
-            except VeniceRetryableError as e:
-                # Venice AI had retryable error (429/500/503) - wait 60s and get new challenge
-                self.log(f"Venice AI retryable error: {e}. Waiting 60s then fetching new challenge...")
-                time.sleep(60)
-                # Loop will continue and get new challenge
 
 
 if __name__ == "__main__":
