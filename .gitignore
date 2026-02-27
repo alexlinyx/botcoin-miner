@@ -16,6 +16,3 @@ Thumbs.db
 
 # Logs
 *.log
-
-# data
-*.json

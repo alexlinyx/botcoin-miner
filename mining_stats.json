@@ -1,0 +1,26 @@
+{
+  "solves": 191,
+  "fails": 341,
+  "total_attempts": 532,
+  "start_time": 1772204248.07039,
+  "last_solve_time": "2026-02-27 10:17:56",
+  "prompt_tokens": 398215,
+  "completion_tokens": 47570,
+  "total_tokens": 445785,
+  "epochs": {
+    "5": {
+      "solves": 44,
+      "fails": 106
+    },
+    "6": {
+      "solves": 92,
+      "fails": 123
+    },
+    "7": {
+      "solves": 49,
+      "fails": 85
+    }
+  },
+  "total_reasoning_time": 137804.32509684563,
+  "solve_count": 499
+}
