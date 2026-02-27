@@ -431,8 +431,8 @@ class BotcoinMiner:
         import secrets
         backoff = [2, 4, 8, 16, 30]
         
-        # Ensure we have a valid token before making request
-        self.ensure_auth()
+        # Note: We don't proactively refresh token here - let inference complete first
+        # Token refresh happens in submit() before we actually need it
         
         for attempt in range(len(backoff) + 1):
             nonce = secrets.token_hex(16)
