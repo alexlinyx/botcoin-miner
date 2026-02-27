@@ -604,7 +604,11 @@ DOCUMENT:
                 break
             try:
                 chunk = json.loads(data)
-                delta = chunk.get('choices', [{}])[0].get('delta', {})
+                choices = chunk.get('choices', [])
+                if not choices:
+                    continue  # Skip chunks with empty choices array
+                
+                delta = choices[0].get('delta', {})
                 
                 # Collect content
                 content = delta.get('content')
@@ -621,8 +625,8 @@ DOCUMENT:
                 
 
                 # Track finish reason
-                if chunk.get('choices', [{}])[0].get('finish_reason'):
-                    finish_reason = chunk['choices'][0]['finish_reason']
+                if choices[0].get('finish_reason'):
+                    finish_reason = choices[0]['finish_reason']
                 
                 # Track usage if provided
                 usage = chunk.get('usage', {})
