@@ -614,13 +614,11 @@ DOCUMENT:
                 content = delta.get('content')
                 if content:
                     artifact_chunks.append(content)
-                    print(content, end='', flush=True)
                     chunk_count += 1
                 
                 reasoning = delta.get('reasoning_content')
                 if reasoning:
                     reasoning_chunks.append(reasoning)
-                    print(f"\033[90m{reasoning}\033[0m", end='', flush=True)
                     chunk_count += 1
                 
 
@@ -636,10 +634,6 @@ DOCUMENT:
                     
             except json.JSONDecodeError:
                 continue
-        
-        # Newline after streaming output
-        if chunk_count > 0:
-            print()
         
         self.log(f"Received {chunk_count} chunks")
         
