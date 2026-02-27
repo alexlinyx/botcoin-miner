@@ -45,6 +45,11 @@ BOTCOIN_ADDRESS = "0xA601877977340862Ca67f816eb079958E5bd0BA3"
 MIN_BALANCE = 25_000_000  # Minimum BOTCOIN to mine
 
 
+class VeniceRetryableError(Exception):
+    """Venice AI error that requires waiting and fetching a new challenge."""
+    pass
+
+
 class BotcoinMiner:
     def __init__(self):
         self.miner_address: Optional[str] = None
@@ -565,9 +570,23 @@ DOCUMENT:
             timeout=LLM_TIMEOUT,
         )
         
-        # Check for errors in stream
+        # Handle Venice AI errors
         if resp.status_code != 200:
-            error_text = resp.text
+            # 401 - Invalid API key
+            if resp.status_code == 401:
+                raise Exception("Venice AI API key is invalid. Check VENICE_API_KEY environment variable.")
+            
+            # 402 - Insufficient credits
+            if resp.status_code == 402:
+                raise Exception("Venice AI: Insufficient credit balance")
+            
+            # 429, 500, 503 - Retryable errors
+            if resp.status_code in (429, 500, 503):
+                self.log(f"Venice AI {resp.status_code}, waiting 60s then fetching new challenge...")
+                raise VeniceRetryableError(f"Venice AI {resp.status_code}")
+            
+            # Other errors
+            error_text = resp.text[:200]
             try:
                 error_json = resp.json()
                 error_msg = error_json.get("error", error_json.get("message", error_text))
@@ -806,12 +825,16 @@ DOCUMENT:
         print("=" * 50 + "\n")
     
     def mine_one(self) -> bool:
-        """Run one mining cycle: solve, then submit. Returns True if successful."""
+        """Run one mining cycle: solve, then submit. Returns True if successful.
+        
+        Raises:
+            VeniceRetryableError: If Venice AI has retryable error (429/500/503) - caller should wait 60s and retry
+        """
         
         # Get challenge
         challenge = self.get_challenge()
         
-        # Solve
+        # Solve (may raise VeniceRetryableError)
         artifact, reasoning_time, prompt = self.solve(challenge, model=MODEL)
         
         # artifact = artifact + "\nVOTE: no\nREASONING: more predictable rewards"
@@ -894,6 +917,11 @@ DOCUMENT:
                 # Tokens last ~10 minutes, re-auth every 8 minutes
                 time.sleep(5)
                 
+            except VeniceRetryableError as e:
+                # Venice AI had retryable error (429/500/503) - wait 60s and get new challenge
+                self.log(f"Venice AI retryable error: {e}. Waiting 60s then fetching new challenge...")
+                time.sleep(60)
+                # Loop will continue and get new challenge
             except KeyboardInterrupt:
                 self.log("Stopping miner...")
                 self.show_stats()
