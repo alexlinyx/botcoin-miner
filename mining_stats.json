@@ -1,9 +1,9 @@
 {
-  "solves": 201,
-  "fails": 364,
-  "total_attempts": 565,
-  "start_time": 1772233811.6322694,
-  "last_solve_time": "2026-02-27 22:27:35",
+  "solves": 206,
+  "fails": 389,
+  "total_attempts": 595,
+  "start_time": 1772251964.1117814,
+  "last_solve_time": "2026-02-28 03:34:36",
   "prompt_tokens": 398215,
   "completion_tokens": 47570,
   "total_tokens": 445785,
@@ -17,10 +17,14 @@
       "fails": 123
     },
     "7": {
-      "solves": 59,
-      "fails": 108
+      "solves": 62,
+      "fails": 120
+    },
+    "8": {
+      "solves": 2,
+      "fails": 13
     }
   },
-  "total_reasoning_time": 140765.61239743233,
-  "solve_count": 532
+  "total_reasoning_time": 143845.70507717133,
+  "solve_count": 562
 }
