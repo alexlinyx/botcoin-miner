@@ -555,10 +555,10 @@ DOCUMENT:
                 "temperature": 0.0,  # Deterministic output
                 "max_tokens": MAX_TOKENS if MAX_TOKENS > 0 else 64000,  # Venice requires number
                 "stream": True,  # API param - enable streaming response
-                "reasoning": {"effort": "max"}
+                "reasoning": {"effort": "high"}
             },
             stream=True,  # Library param - stream HTTP response
-            timeout=LLM_TIMEOUT,
+            timeout=LLM_TIMEOUT
         )
         
         # Handle Venice AI errors
@@ -597,17 +597,17 @@ DOCUMENT:
         
         for line in resp.iter_lines():
             if not line:
-                print("DEBUG: Empty line", file=sys.stderr)
+                # print("DEBUG: Empty line", file=sys.stderr)
                 continue
             line = line.decode('utf-8')
             if not line.startswith('data: '):
-                print(f"DEBUG: Non-data line: {line[:50]}", file=sys.stderr)
+                # print(f"DEBUG: Non-data line: {line[:50]}", file=sys.stderr)
                 continue
             data = line[6:]  # Remove 'data: ' prefix
             if data == '[DONE]':
-                print("DEBUG: Got [DONE]", file=sys.stderr)
+                # print("DEBUG: Got [DONE]", file=sys.stderr)
                 break
-            print(f"DEBUG: Chunk received", file=sys.stderr)
+            # print(f"DEBUG: Chunk received", file=sys.stderr)
             try:
                 chunk = json.loads(data)
                 choices = chunk.get('choices', [])
@@ -620,11 +620,13 @@ DOCUMENT:
                 content = delta.get('content')
                 if content:
                     artifact_chunks.append(content)
+                    print(content, end='', flush=True)
                     chunk_count += 1
                 
                 reasoning = delta.get('reasoning_content')
                 if reasoning:
                     reasoning_chunks.append(reasoning)
+                    print(f"\033[90m{reasoning}\033[0m", end='', flush=True)
                     chunk_count += 1
                 
 
